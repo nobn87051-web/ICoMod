@@ -1,24 +1,11 @@
 # ICo Mod
 
-A Fabric client mod for Wynncraft. Made for [ICo] — the Idiot Company.
+A Fabric client mod for some Wynncraft QoL. 
+Made by ahjd.
 
-Built on Minecraft 1.21.x with Fabric Loom and Kotlin.
-
-## Build
-
-```
-./gradlew build
-```
-
-The jar lands in `build/libs/`.
-
-## Run in dev
-
-```
-./gradlew runClient
-```
+Built on Minecraft 1.21.11 with Fabric Loom and Kotlin.
 
 ## License
 
-See [LICENSE.txt](LICENSE.txt). Short version: read it, fork it for yourself, don't rebrand-and-republish.
- 
+This project is licensed under the GNU GPLv3.
+See the LICENSE file for details.
