@@ -3,7 +3,8 @@
 enum class ChatMode(val displayName: String, val icon: String) {
     NORMAL("Normal", "N"),
     GENIUS("Genius", "G"),
-    BRIISH("Bri'ish", "B");
+    BRIISH("Bri'ish", "B"),
+    CHINESE("Chinese", "中");
 
     fun next(): ChatMode {
         val values = entries

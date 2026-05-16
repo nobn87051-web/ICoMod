@@ -17,10 +17,19 @@ object ChatModeManager {
             ChatMode.valueOf(ConfigManager.config.chatMode)
         }.getOrDefault(ChatMode.NORMAL)
         loadWordMaps()
+        ChinesePoems.init()
     }
 
     fun cycleMode() {
         currentMode = currentMode.next()
+        ConfigManager.config.chatMode = currentMode.name
+        ConfigManager.save()
+    }
+
+    /** Force the chat mode back to NORMAL. Used by the middle-click chat panic-button. */
+    fun resetToNormal() {
+        if (currentMode == ChatMode.NORMAL) return
+        currentMode = ChatMode.NORMAL
         ConfigManager.config.chatMode = currentMode.name
         ConfigManager.save()
     }
@@ -41,7 +50,8 @@ object ChatModeManager {
         mapsDir.mkdirs()
 
         for (mode in ChatMode.entries) {
-            if (mode == ChatMode.NORMAL) continue
+            // CHINESE uses the poem corpus, not the word-map pipeline.
+            if (mode == ChatMode.NORMAL || mode == ChatMode.CHINESE) continue
             val fileName = "${mode.name.lowercase()}.json"
             val file = File(mapsDir, fileName)
 
