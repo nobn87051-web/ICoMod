@@ -1,0 +1,29 @@
+﻿{
+  "schemaVersion": 1,
+  "id": "icomod",
+  "version": "${version}",
+  "name": "IcoMod",
+  "description": "Wynncraft client mod for the guild.",
+  "authors": ["ahjd"],
+  "contact": {},
+  "license": "All-Rights-Reserved",
+  "icon": "assets/icomod/icomod.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "ahjd.icomod.client.IcomodClient"
+    ],
+    "main": [
+      "ahjd.icomod.Icomod"
+    ]
+  },
+  "mixins": [
+    "icomod.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-language-kotlin": ">=${kotlin_loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

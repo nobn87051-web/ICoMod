@@ -1,0 +1,18 @@
+﻿{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "ahjd.icomod.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+  ],
+  "client": [
+    "ChatScreenMixin",
+    "ChatHudMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
