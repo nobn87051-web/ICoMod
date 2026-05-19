@@ -1,4 +1,4 @@
-﻿package ahjd.icomod.features.gifpicker
+package ahjd.icomod.features.gifpicker
 
 import ahjd.icomod.util.AhjLog
 import net.minecraft.client.MinecraftClient
@@ -9,8 +9,6 @@ import org.w3c.dom.NamedNodeMap
 import java.awt.AlphaComposite
 import java.awt.Color
 import java.awt.image.BufferedImage
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -49,13 +47,22 @@ data class CachedTexture(val frames: List<GifFrame>, val width: Int, val height:
  * Minecraft texture. Cached by name. Decoding runs on a small fixed thread pool
  * shared across all gifs.
  *
- * Drawing at a smaller display size is the caller's job â€” they scale via matrix.
- * That keeps textures sharp regardless of where they're shown (chat overlay, picker
- * thumb, etc.) without re-decoding per size.
+ * Drawing at a smaller display size is the caller's job — they scale via matrix.
+ * That keeps textures sharp regardless of where they're shown (chat overlay,
+ * picker thumb, etc.) without re-decoding per size.
+ *
+ * Performance notes (see commit history for the original slow path):
+ *  - All CPU-heavy work (ImageIO decode, scaling, BufferedImage → NativeImage
+ *    pixel copy) happens on [decodePool], never the main render thread.
+ *  - Texture registration is chunked across multiple main-thread ticks so a
+ *    long GIF doesn't freeze rendering for hundreds of ms on first display.
  */
 object GifThumbnail {
-    /** Cap longest side of decoded frames. 512px is a good "source quality" upper bound â€” keeps memory bounded for long gifs. */
+    /** Cap longest side of decoded frames. 512px is a good "source quality" upper bound — keeps memory bounded for long gifs. */
     const val MAX_SOURCE_DIM = 512
+
+    /** How many frames to register per main-thread tick. Small enough that any single tick stays sub-millisecond on the GPU upload path. */
+    private const val REGISTER_BATCH = 4
 
     private val cache = ConcurrentHashMap<String, CachedTexture>()
     private val pending = ConcurrentHashMap<String, Boolean>()
@@ -83,36 +90,107 @@ object GifThumbnail {
                 val tw = maxOf(1, (sw * ratio).toInt())
                 val th = maxOf(1, (sh * ratio).toInt())
 
-                val pngFrames: List<Pair<ByteArray, Int>> = decoded.map { df ->
-                    val out = if (tw == sw && th == sh) df.image else scaleHQ(df.image, tw, th)
-                    val baos = ByteArrayOutputStream()
-                    ImageIO.write(out, "png", baos)
-                    baos.toByteArray() to df.delayMs
+                // Fix #1 + #3: build NativeImages on the worker thread directly
+                // from BufferedImage pixels. Old code wrote each frame to a PNG
+                // ByteArray on the worker thread, then re-decoded that PNG with
+                // NativeImage.read() back on the main thread — the latter step
+                // alone could lock rendering for 100-300ms on a long GIF.
+                val nativeFrames: List<Pair<NativeImage, Int>> = decoded.map { df ->
+                    val src = if (tw == sw && th == sh) df.image else scaleHQ(df.image, tw, th)
+                    bufferedImageToNativeImage(src) to df.delayMs
                 }
 
-                MinecraftClient.getInstance().execute {
-                    runCatching {
-                        val texMgr = MinecraftClient.getInstance().textureManager
-                        val frames = pngFrames.mapIndexed { idx, (bytes, delay) ->
-                            val img = NativeImage.read(ByteArrayInputStream(bytes))
-                            val texName = "icomod-gif-${sanitize(name)}-${tw}x${th}-f$idx"
-                            val tex = NativeImageBackedTexture(Supplier { texName }, img)
-                            val id = Identifier.of("icomod", "gif/${sanitize(name)}_${tw}x${th}_f$idx")
-                            texMgr.registerTexture(id, tex)
-                            GifFrame(id, tw, th, delay)
-                        }
-                        cache[name] = CachedTexture(frames, tw, th)
-                        AhjLog.info(TAG, "Registered gif {} ({}x{} srcâ†’{}x{}, {} frames, {}ms total)",
-                            name, sw, sh, tw, th, frames.size, frames.sumOf { it.delayMs })
-                    }.onFailure { AhjLog.error(TAG, "Failed to register gif {}", it, name) }
-                    pending.remove(name)
-                }
+                // Fix #2: hand registration to the main thread in small batches.
+                // The CachedTexture is only published to [cache] after the FINAL
+                // batch lands so concurrent readers never see a half-built texture.
+                registerInBatches(name, nativeFrames, tw, th)
             }.onFailure {
                 AhjLog.error(TAG, "Failed to decode gif {}", it, name)
                 pending.remove(name)
             }
         }
         return null
+    }
+
+    /**
+     * Recursive batched registration. Each call registers up to [REGISTER_BATCH]
+     * frames on the next main-thread tick, then schedules itself for the next
+     * batch. The last batch publishes the [CachedTexture] and clears the pending
+     * flag.
+     */
+    private fun registerInBatches(
+        name: String,
+        nativeFrames: List<Pair<NativeImage, Int>>,
+        tw: Int,
+        th: Int,
+    ) {
+        val sanitized = sanitize(name)
+        val registered = mutableListOf<GifFrame>()
+        val total = nativeFrames.size
+        val mc = MinecraftClient.getInstance()
+
+        fun submitBatch(start: Int) {
+            mc.execute {
+                runCatching {
+                    val texMgr = mc.textureManager
+                    val end = minOf(start + REGISTER_BATCH, total)
+                    for (i in start until end) {
+                        val (img, delay) = nativeFrames[i]
+                        val texName = "icomod-gif-$sanitized-${tw}x${th}-f$i"
+                        val tex = NativeImageBackedTexture(Supplier { texName }, img)
+                        val id = Identifier.of("icomod", "gif/${sanitized}_${tw}x${th}_f$i")
+                        texMgr.registerTexture(id, tex)
+                        registered += GifFrame(id, tw, th, delay)
+                    }
+                    if (end < total) {
+                        submitBatch(end)
+                    } else {
+                        cache[name] = CachedTexture(registered, tw, th)
+                        AhjLog.info(
+                            TAG, "Registered gif {} ({}x{} src→{}x{}, {} frames, {}ms total)",
+                            name, nativeFrames[0].first.width, nativeFrames[0].first.height,
+                            tw, th, registered.size, registered.sumOf { it.delayMs }
+                        )
+                        pending.remove(name)
+                    }
+                }.onFailure {
+                    AhjLog.error(TAG, "Failed to register gif {}", it, name)
+                    pending.remove(name)
+                }
+            }
+        }
+        submitBatch(0)
+    }
+
+    /**
+     * Convert a [BufferedImage] directly to a [NativeImage] without the
+     * BufferedImage → PNG → NativeImage round-trip the old code did.
+     *
+     * [BufferedImage.getRGB] normalises any source pixel layout to ARGB
+     * (`0xAARRGGBB`). [NativeImage] in 1.21.x expects ABGR byte order in
+     * little-endian memory, i.e. packed-int `0xAABBGGRR`. The loop swaps the
+     * R and B bytes accordingly. If you ever see colours render with red and
+     * blue swapped, suspect this conversion first.
+     */
+    private fun bufferedImageToNativeImage(buf: BufferedImage): NativeImage {
+        val w = buf.width
+        val h = buf.height
+        val pixels = IntArray(w * h)
+        buf.getRGB(0, 0, w, h, pixels, 0, w)
+        val ni = NativeImage(w, h, false)
+        var idx = 0
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                val argb = pixels[idx++]
+                val a = (argb ushr 24) and 0xFF
+                val r = (argb ushr 16) and 0xFF
+                val g = (argb ushr 8) and 0xFF
+                val b = argb and 0xFF
+                val abgr = (a shl 24) or (b shl 16) or (g shl 8) or r
+                ni.setColor(x, y, abgr)
+            }
+        }
+        return ni
     }
 
     private fun scaleHQ(src: BufferedImage, tw: Int, th: Int): BufferedImage {

@@ -7,7 +7,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * Project-local logger. Writes to .minecraft/ahjdmod/logs/icomod.log with sync flush per
+ * Project-local logger. Writes to .minecraft/icomod/logs/icomod.log with sync flush per
  * line so nothing is lost on a hard crash. Also mirrors to stdout so it shows in the
  * normal Minecraft console.
  *
@@ -17,7 +17,7 @@ object AhjLog {
     private val fmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
 
     private val writer: PrintWriter by lazy {
-        val dir = FabricLoader.getInstance().gameDir.resolve("ahjdmod/logs").toFile()
+        val dir = FabricLoader.getInstance().gameDir.resolve("icomod/logs").toFile()
         dir.mkdirs()
         val file = File(dir, "icomod.log")
         // Append, autoFlush=true so each println is fsynced to the OS buffer immediately.

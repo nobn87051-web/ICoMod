@@ -7,7 +7,7 @@ import java.io.File
 data class ModConfig(
     var chatMode: String = "NORMAL",
     var chatModeEnabled: Boolean = true,
-    var serverUrl: String = "http://51.75.70.110:8080",
+    var serverUrl: String = "https://icomod.xyz",
     var gifsEnabled: Boolean = true,
     var gifDefaultSize: String = "S",
     var gifStretch: Boolean = false,
@@ -16,7 +16,7 @@ data class ModConfig(
 object ConfigManager {
     private val gson = GsonBuilder().setPrettyPrinting().create()
     private val configFile: File = FabricLoader.getInstance()
-        .gameDir.resolve("ahjdmod/config.json").toFile()
+        .gameDir.resolve("icomod/config.json").toFile()
 
     var config = ModConfig()
         private set

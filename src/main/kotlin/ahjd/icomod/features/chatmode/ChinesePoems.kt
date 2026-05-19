@@ -7,7 +7,7 @@ import kotlin.random.Random
 
 /**
  * Offline corpus of classical Chinese poems. The bundled JSON is extracted to
- * `<gameDir>/ahjdmod/poems/chinese-poems.json` on first launch so users can
+ * `<gameDir>/icomod/poems/chinese-poems.json` on first launch so users can
  * curate it. No network access — everything is shipped inside the jar.
  *
  * Each poem is stored as a single CJK-only string (punctuation stripped) so a
@@ -22,12 +22,12 @@ object ChinesePoems {
     @Volatile private var poems: List<String> = emptyList()
 
     fun init() {
-        val dir = File(FabricLoader.getInstance().gameDir.toFile(), "ahjdmod/poems")
+        val dir = File(FabricLoader.getInstance().gameDir.toFile(), "icomod/poems")
         dir.mkdirs()
         val file = File(dir, "chinese-poems.json")
 
         if (!file.exists()) {
-            javaClass.getResourceAsStream("/ahjdmod/poems/chinese-poems.json")
+            javaClass.getResourceAsStream("/icomod/poems/chinese-poems.json")
                 ?.use { file.writeBytes(it.readBytes()) }
         }
         if (!file.exists()) return

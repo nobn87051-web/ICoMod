@@ -5,8 +5,11 @@
   "name": "IcoMod",
   "description": "Wynncraft client mod for the guild.",
   "authors": ["ahjd"],
-  "contact": {},
-  "license": "All-Rights-Reserved",
+  "contact": {
+    "homepage": "https://icomod.xyz",
+    "sources": "https://github.com/nobn87051-web/ICoMod"
+  },
+  "license": "GPL-3.0-or-later",
   "icon": "assets/icomod/icomod.png",
   "environment": "client",
   "entrypoints": {

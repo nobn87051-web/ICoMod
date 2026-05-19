@@ -3,7 +3,7 @@
 import ahjd.icomod.config.ConfigManager
 import ahjd.icomod.util.AhjLog
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
+import com.google.gson.annotations.SerializedName
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -11,8 +11,22 @@ import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 
-/** A single entry in the server's GIF catalog (mirrors server's [GifEntry] DTO). */
-data class GifEntry(val name: String, val hash: String, val bytes: Long)
+/**
+ * A single entry in the server's GIF catalog. Matches ICoCore's
+ * `GifEntryDto` wire shape one-for-one — extra fields (`uploader`,
+ * `uploadedAt`) come through as nullable since the mod doesn't render
+ * them today.
+ */
+data class GifEntry(
+    val name: String,
+    val hash: String,
+    val bytes: Long,
+    @SerializedName("uploader") val uploader: String? = null,
+    @SerializedName("uploadedAt") val uploadedAt: Long? = null,
+)
+
+/** Envelope returned by `/api/v1/catalog`. */
+private data class CatalogResponse(val entries: List<GifEntry> = emptyList())
 
 /**
  * Holds the latest catalog fetched from the IcoMod server.
@@ -35,10 +49,23 @@ object GifCatalog {
     @Volatile var lastError: String? = null
         private set
 
+    /**
+     * Monotonically increasing every time [entries] is replaced. Consumers that
+     * cache derived data (e.g. [ChatGifRenderer]'s per-line findGif cache) can
+     * compare against a stored version to detect catalog changes without
+     * registering callbacks.
+     */
+    @Volatile var version: Int = 0
+        private set
+
     fun byName(name: String): GifEntry? = entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
 
     fun refreshAsync(): CompletableFuture<Void> = CompletableFuture.runAsync {
-        val url = "${ConfigManager.config.serverUrl.trimEnd('/')}/gifs/catalog"
+        // Post-Phase-2 the canonical path is `/api/v1/catalog`, which returns
+        // an envelope `{ entries: [...] }`. The legacy `/gifs/catalog`
+        // returned a flat list and is still served as a backward-compat alias
+        // by ICoWebsite, but the typed contract lives at /api/v1.
+        val url = "${ConfigManager.config.serverUrl.trimEnd('/')}/api/v1/catalog"
         runCatching {
             AhjLog.info(TAG, "refresh GET {}", url)
             val req = HttpRequest.newBuilder()
@@ -53,10 +80,11 @@ object GifCatalog {
             if (resp.statusCode() != 200) {
                 error("HTTP ${resp.statusCode()} from $url (body: ${body.take(120)})")
             }
-            val type = object : TypeToken<List<GifEntry>>() {}.type
-            entries = gson.fromJson(body, type) ?: emptyList()
+            val parsed = gson.fromJson(body, CatalogResponse::class.java) ?: CatalogResponse()
+            entries = parsed.entries
             lastError = null
-            AhjLog.info(TAG, "refresh ok entries={}", entries.size)
+            version++
+            AhjLog.info(TAG, "refresh ok entries={} version={}", entries.size, version)
             // Drop on-disk cache entries that no longer exist on the server.
             val pruned = GifCache.pruneToCatalog(entries.map { it.name }.toHashSet())
             if (pruned > 0) AhjLog.info(TAG, "pruned {} stale cache files after refresh", pruned)
@@ -74,6 +102,7 @@ object GifCatalog {
                 lastError = ex.message ?: ex.javaClass.simpleName
             }
             entries = emptyList()
+            version++
         }
     }
 }

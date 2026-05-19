@@ -46,7 +46,7 @@ object ChatModeManager {
     }
 
     private fun loadWordMaps() {
-        val mapsDir = File(FabricLoader.getInstance().gameDir.toFile(), "ahjdmod/word-maps")
+        val mapsDir = File(FabricLoader.getInstance().gameDir.toFile(), "icomod/word-maps")
         mapsDir.mkdirs()
 
         for (mode in ChatMode.entries) {
@@ -56,7 +56,7 @@ object ChatModeManager {
             val file = File(mapsDir, fileName)
 
             if (!file.exists()) {
-                javaClass.getResourceAsStream("/ahjdmod/word-maps/$fileName")
+                javaClass.getResourceAsStream("/icomod/word-maps/$fileName")
                     ?.use { file.writeBytes(it.readBytes()) }
             }
 

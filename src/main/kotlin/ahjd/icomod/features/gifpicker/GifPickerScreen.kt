@@ -12,10 +12,11 @@ import net.minecraft.text.Text
  * Discord-style GIF picker. Opens as a full screen with a dark panel anchored
  * bottom-right above where the chat input would be, showing a grid of thumbnails.
  *
- * Click behaviour:
- *  - If [initialChatText] starts with `/g ` or `/p `, append the gif name and re-open
- *    ChatScreen with the modified text so the user can edit/send themselves.
- *  - Otherwise, send the gif name as a chat message immediately and close the picker.
+ * Click behaviour: insert the gif token into the chat input at the end of any
+ * existing text and re-open ChatScreen. User decides where/how to send — this
+ * keeps the picker chat-channel-agnostic (works with /p, /g, /msg, public chat,
+ * or any future channel prefix Wynncraft adds) without us having to special-case
+ * any of them.
  */
 class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal("GIF Picker")) {
 
