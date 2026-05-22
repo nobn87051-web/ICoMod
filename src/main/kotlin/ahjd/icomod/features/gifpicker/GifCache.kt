@@ -22,7 +22,11 @@ private const val MAX_GIF_BYTES = 8L * 1024 * 1024
 // Whitelist for filenames received from the server. Anything outside this set
 // is rejected so a hostile catalog cannot escape `cacheDir` via traversal
 // (e.g. `..\\foo`) or inject URL/path metacharacters.
-private val SAFE_NAME = Regex("^[A-Za-z0-9_-]{1,64}\\.(?i:png|jpe?g|gif)$")
+// Server upload-name pattern is `<epochMs>_<uploader>_<display>.<ext>` where
+// uploader and display are each up to GIF_NAME_MAX=48 chars after sanitisation,
+// plus the 13-char epoch and two underscores — worst case ~116 chars. The cap
+// here gives some slack and still bounds memory cost of a hostile catalog.
+private val SAFE_NAME = Regex("^[A-Za-z0-9_-]{1,128}\\.(?i:png|jpe?g|gif)$")
 
 /**
  * On-disk cache for GIF file bytes. Files live at .minecraft/icomod/cache/gifs/{name}.

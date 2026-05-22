@@ -1,12 +1,12 @@
-﻿package ahjd.icomod.mixin
+package ahjd.icomod.mixin
 
+import ahjd.icomod.features.chatmode.ChatMode
 import ahjd.icomod.features.chatmode.ChatModeManager
 import ahjd.icomod.features.gifpicker.GifPickerScreen
 import net.minecraft.client.gui.Click
+import net.minecraft.client.gui.DrawContext
 import net.minecraft.client.gui.screen.ChatScreen
 import net.minecraft.client.gui.screen.Screen
-import net.minecraft.client.gui.tooltip.Tooltip
-import net.minecraft.client.gui.widget.ButtonWidget
 import net.minecraft.client.gui.widget.TextFieldWidget
 import net.minecraft.text.Text
 import org.spongepowered.asm.mixin.Mixin
@@ -22,49 +22,79 @@ abstract class ChatScreenMixin(title: Text) : Screen(title) {
 
     @Shadow protected lateinit var chatField: TextFieldWidget
 
-    @Unique private var icomod_modeButton: ButtonWidget? = null
+    @Unique private var icomod_gifX = 0
+    @Unique private var icomod_gifY = 0
+    @Unique private var icomod_modeX = 0
+    @Unique private var icomod_modeY = 0
+    @Unique private val BTN_W = 44
+    @Unique private val BTN_H = 24
 
     @Inject(method = ["init"], at = [At("TAIL")])
     private fun onInit(ci: CallbackInfo) {
-        // Chat-mode cycle button (existing) — bottom row above chat input.
-        // Middle-clicking anywhere in the chat screen resets to NORMAL.
-        val modeBtn = ButtonWidget.builder(modeLabel()) { btn ->
-            ChatModeManager.cycleMode()
-            btn.message = modeLabel()
-            btn.setTooltip(Tooltip.of(modeTooltip()))
-        }
-            .dimensions(width - 73, height - 40, 44, 24)
-            .tooltip(Tooltip.of(modeTooltip()))
-            .build()
-        icomod_modeButton = modeBtn
-        addDrawableChild(modeBtn)
+        icomod_gifX  = width - 73;  icomod_gifY  = height - 68
+        icomod_modeX = width - 73;  icomod_modeY = height - 40
+    }
 
-        // GIF picker button â€” sits directly above the chat-mode button
-        addDrawableChild(
-            ButtonWidget.builder(Text.literal("[GIF]")) {
-                client?.setScreen(GifPickerScreen(chatField.text))
-            }
-                .dimensions(width - 73, height - 68, 44, 24)
-                .tooltip(Tooltip.of(Text.literal("Open GIF picker")))
-                .build()
-        )
+    @Inject(method = ["render"], at = [At("TAIL")])
+    private fun icomod_renderButtons(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float, ci: CallbackInfo) {
+        icomod_drawBtn(context, icomod_gifX,  icomod_gifY,  BTN_W, BTN_H, "[GIF]", mouseX, mouseY)
+        icomod_drawBtn(context, icomod_modeX, icomod_modeY, BTN_W, BTN_H, "[${ChatModeManager.currentMode.icon}]", mouseX, mouseY)
+
+        if (icomod_hovered(mouseX, mouseY, icomod_gifX,  icomod_gifY))
+            context.drawTooltip(textRenderer, Text.literal("Open GIF picker"), mouseX, mouseY)
+        if (icomod_hovered(mouseX, mouseY, icomod_modeX, icomod_modeY))
+            context.drawTooltip(textRenderer, Text.literal("Chat Mode: ${ChatModeManager.currentMode.displayName}"), mouseX, mouseY)
     }
 
     @Inject(method = ["mouseClicked"], at = [At("HEAD")], cancellable = true)
-    private fun icomod_chatMiddleClickReset(click: Click, doubled: Boolean, cir: CallbackInfoReturnable<Boolean>) {
-        // GLFW middle button == 2. Reset chat mode to NORMAL and consume the click
-        // so it doesn't bleed into widgets behind. The button label refreshes via
-        // the stored reference so the user sees the change immediately.
-        if (click.button() != 2) return
-        if (ChatModeManager.currentMode == ahjd.icomod.features.chatmode.ChatMode.NORMAL) return
-        ChatModeManager.resetToNormal()
-        icomod_modeButton?.let {
-            it.message = modeLabel()
-            it.setTooltip(Tooltip.of(modeTooltip()))
+    private fun icomod_mouseClicked(click: Click, doubled: Boolean, cir: CallbackInfoReturnable<Boolean>) {
+        val mx = click.x().toInt()
+        val my = click.y().toInt()
+
+        when (click.button()) {
+            0 -> {
+                if (icomod_hovered(mx, my, icomod_gifX, icomod_gifY)) {
+                    client?.setScreen(GifPickerScreen(chatField.text)); cir.returnValue = true; return
+                }
+                if (icomod_hovered(mx, my, icomod_modeX, icomod_modeY)) {
+                    ChatModeManager.cycleMode(); cir.returnValue = true; return
+                }
+            }
+            2 -> {
+                if (ChatModeManager.currentMode == ChatMode.NORMAL) return
+                ChatModeManager.resetToNormal(); cir.returnValue = true
+            }
         }
-        cir.returnValue = true
     }
 
-    private fun modeLabel() = Text.literal("[${ChatModeManager.currentMode.icon}]")
-    private fun modeTooltip() = Text.literal("Chat Mode: ${ChatModeManager.currentMode.displayName}")
+    @Unique
+    private fun icomod_hovered(mx: Int, my: Int, bx: Int, by: Int) =
+        mx in bx..(bx + BTN_W) && my in by..(by + BTN_H)
+
+    @Unique
+    private fun icomod_drawBtn(
+        ctx: DrawContext, x: Int, y: Int, w: Int, h: Int,
+        label: String, mouseX: Int, mouseY: Int,
+    ) {
+        val hovered = icomod_hovered(mouseX, mouseY, x, y)
+        val bg     = if (hovered) 0xD0281408.toInt() else 0xD0140A06.toInt()
+        val border = if (hovered) 0xFFB04020.toInt() else 0xFF5A2010.toInt()
+
+        // Background
+        ctx.fill(x, y, x + w, y + h, bg)
+
+        // Border
+        ctx.fill(x,         y,         x + w,     y + 1,     border)
+        ctx.fill(x,         y + h - 1, x + w,     y + h,     border)
+        ctx.fill(x,         y,         x + 1,     y + h,     border)
+        ctx.fill(x + w - 1, y,         x + w,     y + h,     border)
+
+        // Centered label
+        val tw = textRenderer.getWidth(label)
+        ctx.drawTextWithShadow(
+            textRenderer, Text.literal(label),
+            x + (w - tw) / 2, y + (h - 8) / 2,
+            0xFFE8B070.toInt()
+        )
+    }
 }
