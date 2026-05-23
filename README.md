@@ -13,10 +13,8 @@ Built on Minecraft 1.21.11 with Fabric Loom and Kotlin.
 
 
 # TODO:
-1. Finish the settings menu
-2. Polish the code throughout the mod
-3. Move on to the next feature: Onscreen draggable images, text, ect...
-
+1. Replace most class related sounds by custom ones
+   
 ## License
 
 This project is licensed under the GNU GPLv3.
