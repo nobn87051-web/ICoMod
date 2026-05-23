@@ -1,5 +1,6 @@
 package ahjd.icomod.mixin
 
+import ahjd.icomod.config.ConfigManager
 import ahjd.icomod.features.chatmode.ChatMode
 import ahjd.icomod.features.chatmode.ChatModeManager
 import ahjd.icomod.features.gifpicker.GifPickerScreen
@@ -37,30 +38,36 @@ abstract class ChatScreenMixin(title: Text) : Screen(title) {
 
     @Inject(method = ["render"], at = [At("TAIL")])
     private fun icomod_renderButtons(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float, ci: CallbackInfo) {
-        icomod_drawBtn(context, icomod_gifX,  icomod_gifY,  BTN_W, BTN_H, "[GIF]", mouseX, mouseY)
-        icomod_drawBtn(context, icomod_modeX, icomod_modeY, BTN_W, BTN_H, "[${ChatModeManager.currentMode.icon}]", mouseX, mouseY)
-
-        if (icomod_hovered(mouseX, mouseY, icomod_gifX,  icomod_gifY))
-            context.drawTooltip(textRenderer, Text.literal("Open GIF picker"), mouseX, mouseY)
-        if (icomod_hovered(mouseX, mouseY, icomod_modeX, icomod_modeY))
-            context.drawTooltip(textRenderer, Text.literal("Chat Mode: ${ChatModeManager.currentMode.displayName}"), mouseX, mouseY)
+        val cfg = ConfigManager.config
+        if (cfg.gifsEnabled) {
+            icomod_drawBtn(context, icomod_gifX,  icomod_gifY,  BTN_W, BTN_H, "[GIF]", mouseX, mouseY)
+            if (icomod_hovered(mouseX, mouseY, icomod_gifX,  icomod_gifY))
+                context.drawTooltip(textRenderer, Text.literal("Open GIF picker"), mouseX, mouseY)
+        }
+        if (cfg.chatModeEnabled) {
+            icomod_drawBtn(context, icomod_modeX, icomod_modeY, BTN_W, BTN_H, "[${ChatModeManager.currentMode.icon}]", mouseX, mouseY)
+            if (icomod_hovered(mouseX, mouseY, icomod_modeX, icomod_modeY))
+                context.drawTooltip(textRenderer, Text.literal("Chat Mode: ${ChatModeManager.currentMode.displayName}"), mouseX, mouseY)
+        }
     }
 
     @Inject(method = ["mouseClicked"], at = [At("HEAD")], cancellable = true)
     private fun icomod_mouseClicked(click: Click, doubled: Boolean, cir: CallbackInfoReturnable<Boolean>) {
         val mx = click.x().toInt()
         val my = click.y().toInt()
+        val cfg = ConfigManager.config
 
         when (click.button()) {
             0 -> {
-                if (icomod_hovered(mx, my, icomod_gifX, icomod_gifY)) {
+                if (cfg.gifsEnabled && icomod_hovered(mx, my, icomod_gifX, icomod_gifY)) {
                     client?.setScreen(GifPickerScreen(chatField.text)); cir.returnValue = true; return
                 }
-                if (icomod_hovered(mx, my, icomod_modeX, icomod_modeY)) {
+                if (cfg.chatModeEnabled && icomod_hovered(mx, my, icomod_modeX, icomod_modeY)) {
                     ChatModeManager.cycleMode(); cir.returnValue = true; return
                 }
             }
             2 -> {
+                if (!cfg.chatModeEnabled) return
                 if (ChatModeManager.currentMode == ChatMode.NORMAL) return
                 ChatModeManager.resetToNormal(); cir.returnValue = true
             }
@@ -77,24 +84,27 @@ abstract class ChatScreenMixin(title: Text) : Screen(title) {
         label: String, mouseX: Int, mouseY: Int,
     ) {
         val hovered = icomod_hovered(mouseX, mouseY, x, y)
-        val bg     = if (hovered) 0xD0281408.toInt() else 0xD0140A06.toInt()
-        val border = if (hovered) 0xFFB04020.toInt() else 0xFF5A2010.toInt()
+        val bg     = if (hovered) 0xE03A3A3A.toInt() else 0xE01F1F1F.toInt()
+        val border = if (hovered) 0xFFFFE066.toInt() else 0xFFFFCC33.toInt()
+        val text   = if (hovered) 0xFFFFFFFF.toInt() else 0xFFFFE066.toInt()
 
-        // Background
-        ctx.fill(x, y, x + w, y + h, bg)
+        // Rounded-ish 2px-corner fill
+        ctx.fill(x + 2, y, x + w - 2, y + 2, bg)
+        ctx.fill(x, y + 2, x + w, y + h - 2, bg)
+        ctx.fill(x + 2, y + h - 2, x + w - 2, y + h, bg)
 
-        // Border
-        ctx.fill(x,         y,         x + w,     y + 1,     border)
-        ctx.fill(x,         y + h - 1, x + w,     y + h,     border)
-        ctx.fill(x,         y,         x + 1,     y + h,     border)
-        ctx.fill(x + w - 1, y,         x + w,     y + h,     border)
+        // Rounded border
+        ctx.fill(x + 2, y,         x + w - 2, y + 1,     border)
+        ctx.fill(x + 2, y + h - 1, x + w - 2, y + h,     border)
+        ctx.fill(x,     y + 2,     x + 1,     y + h - 2, border)
+        ctx.fill(x + w - 1, y + 2, x + w,     y + h - 2, border)
+        ctx.fill(x + 1, y + 1, x + 2, y + 2, border)
+        ctx.fill(x + w - 2, y + 1, x + w - 1, y + 2, border)
+        ctx.fill(x + 1, y + h - 2, x + 2, y + h - 1, border)
+        ctx.fill(x + w - 2, y + h - 2, x + w - 1, y + h - 1, border)
 
-        // Centered label
         val tw = textRenderer.getWidth(label)
-        ctx.drawTextWithShadow(
-            textRenderer, Text.literal(label),
-            x + (w - tw) / 2, y + (h - 8) / 2,
-            0xFFE8B070.toInt()
-        )
+        ctx.drawTextWithShadow(textRenderer, Text.literal(label),
+            x + (w - tw) / 2, y + (h - 8) / 2, text)
     }
 }

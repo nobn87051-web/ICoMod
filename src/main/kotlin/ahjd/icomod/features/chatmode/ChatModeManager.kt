@@ -21,16 +21,25 @@ object ChatModeManager {
     }
 
     fun cycleMode() {
-        currentMode = currentMode.next()
-        ConfigManager.config.chatMode = currentMode.name
-        ConfigManager.save()
+        setMode(currentMode.next())
     }
 
     /** Force the chat mode back to NORMAL. Used by the middle-click chat panic-button. */
     fun resetToNormal() {
         if (currentMode == ChatMode.NORMAL) return
-        currentMode = ChatMode.NORMAL
-        ConfigManager.config.chatMode = currentMode.name
+        setMode(ChatMode.NORMAL)
+    }
+
+    /**
+     * Set the active mode + persist. Routed through here so external callers
+     * (e.g. the settings screen) can update [currentMode] without going
+     * around our back via [ConfigManager] -- writing the config alone would
+     * leave [applyWordMap] running against the stale in-memory value until
+     * the next mod restart.
+     */
+    fun setMode(mode: ChatMode) {
+        currentMode = mode
+        ConfigManager.config.chatMode = mode.name
         ConfigManager.save()
     }
 

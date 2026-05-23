@@ -1,5 +1,9 @@
 package ahjd.icomod.features.gifpicker
 
+import ahjd.icomod.features.settings.ui.WarmPalette
+import ahjd.icomod.features.settings.ui.drawRoundedBorder
+import ahjd.icomod.features.settings.ui.fillRounded
+import ahjd.icomod.features.settings.ui.lerpColor
 import net.minecraft.client.MinecraftClient
 import net.minecraft.client.gui.Click
 import net.minecraft.client.gui.DrawContext
@@ -8,16 +12,14 @@ import net.minecraft.client.gui.screen.Screen
 import net.minecraft.text.Text
 import net.minecraft.util.Util
 import java.net.URI
+import kotlin.math.exp
 
 /**
- * Discord-style GIF picker. Opens as a full screen with a dark panel anchored
- * bottom-right above where the chat input would be, showing a grid of thumbnails.
+ * GIF picker. Dark-gray panel with yellow accents anchored bottom-right above
+ * the chat input. Rounded corners + animated hover on cells/buttons.
  *
  * Click behaviour: insert the gif token into the chat input at the end of any
- * existing text and re-open ChatScreen. User decides where/how to send — this
- * keeps the picker chat-channel-agnostic (works with /p, /g, /msg, public chat,
- * or any future channel prefix Wynncraft adds) without us having to special-case
- * any of them.
+ * existing text and re-open ChatScreen. User decides where/how to send.
  */
 class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal("GIF Picker")) {
 
@@ -36,16 +38,21 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
     private var panelW = 0
     private var panelH = 0
 
-    // Custom header buttons — no vanilla ButtonWidget
     private data class HdrButton(
         val x: Int, val y: Int, val w: Int, val h: Int,
         val label: String,
-        val accentColor: Int,
-        val hoverColor: Int,
-    )
+        val idleBg: Int, val hoverBg: Int,
+        val idleBorder: Int, val hoverBorder: Int,
+        val idleText: Int, val hoverText: Int,
+    ) {
+        var hoverT: Float = 0f
+    }
 
     private var btnClose: HdrButton? = null
     private var btnSubmit: HdrButton? = null
+
+    private var cellHoverT: FloatArray = FloatArray(0)
+    private var lastNs: Long = 0L
 
     override fun init() {
         super.init()
@@ -67,53 +74,59 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
         val btnH = 18
         val btnY = panelY + (headerH - btnH) / 2
 
-        // Close button — right edge
         btnClose = HdrButton(
             x = panelX + panelW - pad - 20,
             y = btnY, w = 20, h = btnH,
-            label = "✕",
-            accentColor = 0xFF3A1410.toInt(),
-            hoverColor  = 0xFF8A2818.toInt(),
+            label = "X",
+            idleBg = WarmPalette.DANGER_FAINT,
+            hoverBg = (WarmPalette.DANGER and 0x00FFFFFF) or (0x66 shl 24),
+            idleBorder = WarmPalette.DANGER,
+            hoverBorder = WarmPalette.DANGER_BRIGHT,
+            idleText = WarmPalette.DANGER_BRIGHT,
+            hoverText = 0xFFFFFFFF.toInt(),
         )
 
-        // Submit button — left of close
         val submitW = 80
         btnSubmit = HdrButton(
             x = panelX + panelW - pad - 20 - gap - submitW,
             y = btnY, w = submitW, h = btnH,
             label = "+ Submit",
-            accentColor = 0xFF4A2410.toInt(),
-            hoverColor  = 0xFF8A4818.toInt(),
+            idleBg = WarmPalette.SUCCESS_FAINT,
+            hoverBg = (WarmPalette.SUCCESS and 0x00FFFFFF) or (0x66 shl 24),
+            idleBorder = WarmPalette.SUCCESS,
+            hoverBorder = WarmPalette.SUCCESS_BRIGHT,
+            idleText = WarmPalette.SUCCESS_BRIGHT,
+            hoverText = 0xFFFFFFFF.toInt(),
         )
     }
 
     override fun render(context: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
         super.render(context, mouseX, mouseY, delta)
 
-        // Panel background
-        context.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xF0140A06.toInt())
+        // Animation dt
+        val now = System.nanoTime()
+        val dt = if (lastNs == 0L) 0f else ((now - lastNs) / 1_000_000_000.0).toFloat()
+        lastNs = now
+        val k = 1f - exp(-dt * 14f)
 
-        // Header strip
-        context.fill(panelX, panelY, panelX + panelW, panelY + headerH, 0xFF1F0E07.toInt())
+        // Panel — rounded dark-gray card, plain orange border
+        fillRounded(context, panelX, panelY, panelW, panelH, WarmPalette.CARD)
 
-        // Header border bottom separator — ember line
-        context.fill(panelX, panelY + headerH - 1, panelX + panelW, panelY + headerH, 0xFF6A2810.toInt())
+        // Header strip with plain divider
+        context.fill(panelX + 2, panelY + 2, panelX + panelW - 2, panelY + headerH, WarmPalette.SURFACE)
+        context.fill(panelX + 2, panelY + headerH - 1, panelX + panelW - 2, panelY + headerH, WarmPalette.ACCENT)
 
-        // Outer panel border — burnt orange
-        drawRectBorder(context, panelX, panelY, panelW, panelH, 0xFF6A2810.toInt())
-        // Inner accent border — deep ember shadow
-        drawRectBorder(context, panelX + 1, panelY + 1, panelW - 2, panelH - 2, 0xFF2A0E06.toInt())
+        drawRoundedBorder(context, panelX, panelY, panelW, panelH, WarmPalette.ACCENT)
 
-        // Title — amber
+        // Title
         context.drawTextWithShadow(
             textRenderer,
             Text.literal("GIFs  §8(${entries.size})"),
-            panelX + pad, panelY + (headerH - 8) / 2, 0xFFE8B070.toInt()
+            panelX + pad, panelY + (headerH - 8) / 2, WarmPalette.ACCENT_BRIGHT
         )
 
-        // Header buttons
-        renderHdrButton(context, btnClose, mouseX, mouseY)
-        renderHdrButton(context, btnSubmit, mouseX, mouseY)
+        renderHdrButton(context, btnClose, mouseX, mouseY, k)
+        renderHdrButton(context, btnSubmit, mouseX, mouseY, k)
 
         if (entries.isEmpty()) {
             val msg = when {
@@ -123,10 +136,13 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
             }
             context.drawTextWithShadow(
                 textRenderer, Text.literal(msg),
-                panelX + pad, panelY + headerH + pad + 4, 0xFFAAAAAA.toInt()
+                panelX + pad, panelY + headerH + pad + 4, WarmPalette.MUTED
             )
             return
         }
+
+        // Resize cell hover array if needed
+        if (cellHoverT.size != entries.size) cellHoverT = FloatArray(entries.size)
 
         val gridY0 = panelY + headerH + pad
         for ((i, entry) in entries.withIndex()) {
@@ -137,10 +153,12 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
             if (y + thumb < gridY0 || y > panelY + panelH - pad) continue
 
             val hovered = mouseX in x..(x + thumb) && mouseY in y..(y + thumb)
+            val target = if (hovered) 1f else 0f
+            cellHoverT[i] += (target - cellHoverT[i]) * k
+            val hov = cellHoverT[i]
 
-            // Cell background — subtle warm gradient via two fills
-            context.fill(x, y, x + thumb, y + thumb / 2, if (hovered) 0xFF2A1810.toInt() else 0xFF1F100A.toInt())
-            context.fill(x, y + thumb / 2, x + thumb, y + thumb, if (hovered) 0xFF221008.toInt() else 0xFF170A06.toInt())
+            val bg = lerpColor(WarmPalette.INPUT, WarmPalette.RAISED, hov)
+            fillRounded(context, x, y, thumb, thumb, bg)
 
             val localFuture = GifCache.ensureLocalAsync(entry)
             val localFile = localFuture.getNow(null)
@@ -156,59 +174,51 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
             } else {
                 val label = when {
                     localFuture.isCompletedExceptionally -> "err"
-                    localFile == null                    -> "…"
+                    localFile == null                    -> "..."
                     else                                 -> "decoding"
                 }
                 drawCellLabel(context, label, entry.name, x, y)
             }
 
-            if (hovered) drawRectBorder(context, x, y, thumb, thumb, 0xFFB04020.toInt())
-            else         drawRectBorder(context, x, y, thumb, thumb, 0xFF3A1810.toInt())
+            val border = lerpColor(WarmPalette.BORDER, WarmPalette.ACCENT_BRIGHT, hov)
+            drawRoundedBorder(context, x, y, thumb, thumb, border)
         }
 
-        // Submit tooltip on hover
         val sub = btnSubmit
         if (sub != null && mouseX in sub.x..(sub.x + sub.w) && mouseY in sub.y..(sub.y + sub.h)) {
             context.drawTextWithShadow(
                 textRenderer, Text.literal("§7Submit GIFs at icomod.xyz"),
-                panelX + pad, panelY + panelH + 4, 0xFFAAAAAA.toInt()
+                panelX + pad, panelY + panelH + 4, WarmPalette.MUTED
             )
         }
     }
 
-    private fun renderHdrButton(ctx: DrawContext, btn: HdrButton?, mouseX: Int, mouseY: Int) {
+    private fun renderHdrButton(ctx: DrawContext, btn: HdrButton?, mouseX: Int, mouseY: Int, k: Float) {
         btn ?: return
         val hovered = mouseX in btn.x..(btn.x + btn.w) && mouseY in btn.y..(btn.y + btn.h)
-        val bg = if (hovered) btn.hoverColor else btn.accentColor
+        val target = if (hovered) 1f else 0f
+        btn.hoverT += (target - btn.hoverT) * k
+        val t = btn.hoverT
 
-        // Background fill
-        ctx.fill(btn.x, btn.y, btn.x + btn.w, btn.y + btn.h, bg)
+        val bg = lerpColor(btn.idleBg, btn.hoverBg, t)
+        val border = lerpColor(btn.idleBorder, btn.hoverBorder, t)
+        val text = lerpColor(btn.idleText, btn.hoverText, t)
 
-        // Border — brighter ember on hover
-        val borderCol = if (hovered) 0xFFB04020.toInt() else 0xFF5A2010.toInt()
-        drawRectBorder(ctx, btn.x, btn.y, btn.w, btn.h, borderCol)
+        fillRounded(ctx, btn.x, btn.y, btn.w, btn.h, bg)
+        drawRoundedBorder(ctx, btn.x, btn.y, btn.w, btn.h, border)
 
-        // Centered label text — amber
         val tw = textRenderer.getWidth(btn.label)
-        val tx = btn.x + (btn.w - tw) / 2
-        val ty = btn.y + (btn.h - 8) / 2
-        ctx.drawTextWithShadow(textRenderer, Text.literal(btn.label), tx, ty, 0xFFE8B070.toInt())
-    }
-
-    private fun drawRectBorder(ctx: DrawContext, x: Int, y: Int, w: Int, h: Int, colour: Int) {
-        ctx.fill(x,         y,         x + w,     y + 1,     colour) // top
-        ctx.fill(x,         y + h - 1, x + w,     y + h,     colour) // bottom
-        ctx.fill(x,         y,         x + 1,     y + h,     colour) // left
-        ctx.fill(x + w - 1, y,         x + w,     y + h,     colour) // right
+        ctx.drawTextWithShadow(textRenderer, Text.literal(btn.label),
+            btn.x + (btn.w - tw) / 2, btn.y + (btn.h - 8) / 2, text)
     }
 
     private fun drawFilenameFallback(ctx: DrawContext, name: String, x: Int, y: Int) {
         val short = if (name.length > 8) name.substring(0, 7) + "…" else name
-        ctx.drawTextWithShadow(textRenderer, Text.literal(short), x + 4, y + thumb / 2 - 4, 0xFFE0B080.toInt())
+        ctx.drawTextWithShadow(textRenderer, Text.literal(short), x + 4, y + thumb / 2 - 4, WarmPalette.MUTED)
     }
 
     private fun drawCellLabel(ctx: DrawContext, status: String, name: String, x: Int, y: Int) {
-        ctx.drawTextWithShadow(textRenderer, Text.literal(status), x + 4, y + 4, 0xFF8A5538.toInt())
+        ctx.drawTextWithShadow(textRenderer, Text.literal(status), x + 4, y + 4, WarmPalette.DIM)
         drawFilenameFallback(ctx, name, x, y)
     }
 
@@ -257,7 +267,7 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
 
     private fun handleSelection(entry: GifEntry) {
         val trimmed = initialChatText.trim()
-        val selectedName = entry.name + GifSize.DEFAULT.name
+        val selectedName = entry.name + GifSize.configuredDefault().name
         val client = MinecraftClient.getInstance()
         val newText = if (trimmed.isEmpty()) selectedName else "${trimmed.trimEnd()} $selectedName"
         client.setScreen(ChatScreen(newText, false))

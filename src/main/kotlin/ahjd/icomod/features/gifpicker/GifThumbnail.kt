@@ -83,26 +83,17 @@ object GifThumbnail {
                 val decoded = decodeAllFrames(file)
                 if (decoded.isEmpty()) error("no frames decoded")
 
-                // Compute target dims using first frame as the canonical aspect
                 val sw = decoded[0].image.width
                 val sh = decoded[0].image.height
                 val ratio = minOf(1.0, MAX_SOURCE_DIM.toDouble() / maxOf(sw, sh))
                 val tw = maxOf(1, (sw * ratio).toInt())
                 val th = maxOf(1, (sh * ratio).toInt())
 
-                // Fix #1 + #3: build NativeImages on the worker thread directly
-                // from BufferedImage pixels. Old code wrote each frame to a PNG
-                // ByteArray on the worker thread, then re-decoded that PNG with
-                // NativeImage.read() back on the main thread — the latter step
-                // alone could lock rendering for 100-300ms on a long GIF.
                 val nativeFrames: List<Pair<NativeImage, Int>> = decoded.map { df ->
                     val src = if (tw == sw && th == sh) df.image else scaleHQ(df.image, tw, th)
                     bufferedImageToNativeImage(src) to df.delayMs
                 }
 
-                // Fix #2: hand registration to the main thread in small batches.
-                // The CachedTexture is only published to [cache] after the FINAL
-                // batch lands so concurrent readers never see a half-built texture.
                 registerInBatches(name, nativeFrames, tw, th)
             }.onFailure {
                 AhjLog.error(TAG, "Failed to decode gif {}", it, name)

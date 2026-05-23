@@ -18,14 +18,25 @@ enum class GifSize(val height: Int, val maxWidth: Int) {
     L(56, 340);
 
     companion object {
+        /** Compile-time fallback used when config is unreadable. */
         val DEFAULT = S
+
+        /**
+         * User-configured default. Read from
+         * [ahjd.icomod.config.ConfigManager.config.gifDefaultSize] each call so
+         * a settings-screen change applies to the next typed-without-suffix
+         * GIF without a restart.
+         */
+        fun configuredDefault(): GifSize = runCatching {
+            valueOf(ahjd.icomod.config.ConfigManager.config.gifDefaultSize.uppercase())
+        }.getOrDefault(DEFAULT)
 
         fun parse(suffix: String?): GifSize = when (suffix?.uppercase()) {
             "XS" -> XS
             "S" -> S
             "M" -> M
             "L" -> L
-            else -> DEFAULT
+            else -> configuredDefault()
         }
     }
 }

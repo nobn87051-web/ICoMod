@@ -140,10 +140,19 @@ object ChatGifRenderer {
         val ct = GifThumbnail.get(file, entry.name) ?: return false
         val frame = ct.frameAt(System.currentTimeMillis())
 
-        // Aspect-fit into the overlay box (in chat-space units)
-        val ratio = minOf(size.maxWidth.toDouble() / frame.width, size.height.toDouble() / frame.height)
-        val dispW = maxOf(1, (frame.width * ratio).toInt())
-        val dispH = maxOf(1, (frame.height * ratio).toInt())
+        // Stretch toggle: fill the box (distort aspect) vs aspect-fit (letterbox).
+        // Read live each draw so a settings change applies on the next frame.
+        val stretch = ahjd.icomod.config.ConfigManager.config.gifStretch
+        val dispW: Int
+        val dispH: Int
+        if (stretch) {
+            dispW = size.maxWidth
+            dispH = size.height
+        } else {
+            val ratio = minOf(size.maxWidth.toDouble() / frame.width, size.height.toDouble() / frame.height)
+            dispW = maxOf(1, (frame.width * ratio).toInt())
+            dispH = maxOf(1, (frame.height * ratio).toInt())
+        }
 
         if (clipTop != null && clipBottom != null) {
             val clippedTop = maxOf(y, clipTop)
