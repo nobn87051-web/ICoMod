@@ -15,9 +15,8 @@ import java.util.concurrent.CompletableFuture
  * Checks GitHub Releases for a newer IcoMod jar.
  *
  * Source is the repo in `fabric.mod.json` (`contact.sources`). We pull the
- * release LIST (not just /latest) so we can count how many releases are newer
- * than the running version — Sec 18 distinguishes "1 behind" (soft prompt) from
- * "2+ behind" (mandatory).
+ * release LIST (not just /latest) so we can show how many releases the user is
+ * behind. The prompt is always optional — the user may stay on any version.
  */
 object UpdateChecker {
 
@@ -44,7 +43,6 @@ object UpdateChecker {
         val behind: Int,
     ) {
         val updateAvailable: Boolean get() = behind > 0 && jarUrl != null
-        val mandatory: Boolean get() = behind >= 2
     }
 
     private data class Asset(
@@ -111,8 +109,8 @@ object UpdateChecker {
             val latest = releases.maxByOrNull { SemVer.parse(it.tag) } ?: releases.first()
 
             // The update target is the NEWEST release that actually ships a jar.
-            // Falling back past a jar-less newest release keeps both the update
-            // path and the mandatory gate working when assets are missing.
+            // Falling back past a jar-less newest release keeps the update
+            // offer working when the latest release has no assets yet.
             val target = newer.sortedByDescending { SemVer.parse(it.tag) }
                 .firstOrNull { rel -> rel.assets.any(::isJar) }
             val jarAsset = target?.assets?.firstOrNull(::isJar)

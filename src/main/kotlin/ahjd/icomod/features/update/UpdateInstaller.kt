@@ -29,9 +29,6 @@ import java.util.concurrent.atomic.AtomicInteger
  *    jars in `mods/`.
  *  - A single shutdown hook reads a volatile [pendingScript]; [cancel] clears
  *    it so an armed swap can be aborted before exit.
- *
- * [removeMod] uses the same detached-delete path with no replacement (Sec 18.3
- * "Remove Mod").
  */
 object UpdateInstaller {
 
@@ -162,15 +159,6 @@ object UpdateInstaller {
         } else {
             AhjLog.warn(TAG, "no published sha256; relying on TLS + zip-magic check")
         }
-    }
-
-    /** Schedule deletion of the running jar on exit, with no replacement. */
-    fun removeMod(): Boolean {
-        val old = currentJar() ?: return false
-        scheduleSwap(old, null, null)
-        state = State.STAGED
-        AhjLog.info(TAG, "scheduled removal of {} on exit", old.name)
-        return true
     }
 
     /**

@@ -9,11 +9,9 @@ import net.minecraft.client.gui.screen.TitleScreen
 
 /**
  * Drives the launch update check (Sec 18). Fetches GitHub Releases async on
- * init; when the title screen first appears, prompts based on how far behind:
- *
- *  - 2+ behind  -> mandatory [UpdateScreen] (Update Now / Remove Mod), no escape
- *  - 1 behind   -> soft [UpdateScreen] (Update Now / Later), asked once per
- *                  session (the `shown` latch)
+ * init; when the title screen first appears and a newer version exists, shows
+ * an optional [UpdateScreen] (Update Now / Later) once per session. The user
+ * is free to stay on any version — the prompt never blocks play.
  */
 object UpdateManager {
 
@@ -31,9 +29,7 @@ object UpdateManager {
         }
 
         ScreenEvents.AFTER_INIT.register { client, screen, _, _ ->
-            // A mandatory update re-asserts on EVERY title screen so it can't be
-            // sidestepped by a transient screen superseding the prompt; a soft
-            // prompt latches `shown` and asks only once per session.
+            // Show once per session when the title screen first appears.
             if (screen is TitleScreen) maybePrompt(client)
         }
 
@@ -73,7 +69,7 @@ object UpdateManager {
     private fun maybePrompt(client: MinecraftClient) {
         val r = result ?: return
         if (!r.updateAvailable) return
-        if (!r.mandatory && shown) return
+        if (shown) return
         if (client.currentScreen is UpdateScreen) return
         shown = true
         val parent = client.currentScreen

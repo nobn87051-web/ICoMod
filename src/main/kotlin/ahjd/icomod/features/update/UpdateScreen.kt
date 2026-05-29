@@ -11,24 +11,17 @@ import net.minecraft.client.gui.screen.Screen
 import net.minecraft.text.Text
 
 /**
- * Update prompt. Mandatory variant (2+ behind) cannot be dismissed before a
- * swap is staged — only Update Now or Remove Mod. Soft variant (1 behind) adds
- * a Later button.
+ * Optional update prompt shown once per session when a newer version exists.
+ * Always dismissible — the user may stay on any version.
  *
- * Flow (mirrors Wynntils' UpdateService): Update Now streams the download with
- * a live progress bar, then offers **Restart Now** (quits so the swap applies
- * immediately) or **On Next Launch** (keep playing; the staged swap completes
- * whenever Minecraft next exits). Styled with the warm widget set; mandatory
- * recolors the chrome danger-red.
+ * Update Now streams the download with a live progress bar, then offers
+ * **Restart Now** (quits so the swap applies immediately) or **On Next Launch**
+ * (keep playing; the staged swap completes whenever Minecraft next exits).
  */
 class UpdateScreen(
     private val result: UpdateChecker.Result,
     private val parent: Screen?,
 ) : Screen(Text.literal("IcoMod Update")) {
-
-    private val mandatory = result.mandatory
-    private val accent = if (mandatory) WarmPalette.DANGER else WarmPalette.ACCENT
-    private val accentBright = if (mandatory) WarmPalette.DANGER_BRIGHT else WarmPalette.ACCENT_BRIGHT
 
     private val panelW = 300
     private val panelH = 172
@@ -38,11 +31,8 @@ class UpdateScreen(
     private var cx = 0
     private var rowY = 0
 
-    /** Remove Mod is destructive + irreversible, so require a second click. */
-    private var removeArmed = false
-
     private lateinit var btnLeft: WarmButton    // Update Now / Retry / Restart Now / Downloading
-    private lateinit var btnRight: WarmButton    // Remove / Later / On Next Launch
+    private lateinit var btnRight: WarmButton    // Later / On Next Launch
 
     override fun init() {
         super.init()
@@ -68,12 +58,6 @@ class UpdateScreen(
         UpdateInstaller.install(url, result.sha256)
     }
 
-    private fun onRemove() {
-        // First click arms; second click commits.
-        if (!removeArmed) { removeArmed = true; return }
-        UpdateInstaller.removeMod()
-    }
-
     /** Quit the client so the JVM exits and the staged swap runs immediately. */
     private fun restartNow() {
         MinecraftClient.getInstance().scheduleStop()
@@ -92,40 +76,29 @@ class UpdateScreen(
     private fun refreshButtons() {
         when (UpdateInstaller.state) {
             UpdateInstaller.State.STAGED -> {
-                btnLeft.style = WarmButton.Style.PRIMARY
                 btnLeft.active = true
                 btnLeft.message = Text.literal("Restart Now")
                 btnLeft.setAction { restartNow() }
 
                 btnRight.visible = true
-                btnRight.style = WarmButton.Style.GHOST
                 btnRight.active = true
                 btnRight.message = Text.literal("On Next Launch")
                 btnRight.setAction { finalizeLater() }
             }
             UpdateInstaller.State.DOWNLOADING -> {
-                btnLeft.style = WarmButton.Style.PRIMARY
                 btnLeft.active = false
                 btnLeft.message = Text.literal("Downloading...")
                 btnRight.visible = false
             }
             else -> { // IDLE or FAILED
-                btnLeft.style = WarmButton.Style.PRIMARY
                 btnLeft.active = true
                 btnLeft.message = Text.literal(if (UpdateInstaller.state == UpdateInstaller.State.FAILED) "Retry" else "Update Now")
                 btnLeft.setAction { onUpdate() }
 
                 btnRight.visible = true
                 btnRight.active = true
-                if (mandatory) {
-                    btnRight.style = WarmButton.Style.DANGER
-                    btnRight.message = Text.literal(if (removeArmed) "Confirm Remove" else "Remove Mod")
-                    btnRight.setAction { onRemove() }
-                } else {
-                    btnRight.style = WarmButton.Style.GHOST
-                    btnRight.message = Text.literal("Later")
-                    btnRight.setAction { close() }
-                }
+                btnRight.message = Text.literal("Later")
+                btnRight.setAction { close() }
             }
         }
         // Center the left button when it stands alone (download in progress).
@@ -136,11 +109,10 @@ class UpdateScreen(
         refreshButtons()
         ctx.fill(0, 0, width, height, WarmPalette.SCRIM)
         fillRounded(ctx, px, py, panelW, panelH, WarmPalette.CARD)
-        drawOrnamentalBorder(ctx, px, py, panelW, panelH, accent, accentBright)
+        drawOrnamentalBorder(ctx, px, py, panelW, panelH, WarmPalette.ACCENT, WarmPalette.ACCENT_BRIGHT)
 
         // Title
-        val title = if (mandatory) "Update Required" else "Update Available"
-        ctx.drawCenteredTextWithShadow(textRenderer, Text.literal(title), cx, py + 20, accentBright)
+        ctx.drawCenteredTextWithShadow(textRenderer, Text.literal("Update Available"), cx, py + 20, WarmPalette.ACCENT_BRIGHT)
 
         // Version transition + behind badge
         ctx.drawCenteredTextWithShadow(
@@ -160,11 +132,7 @@ class UpdateScreen(
             val (status, color) = when (UpdateInstaller.state) {
                 UpdateInstaller.State.STAGED -> "Update ready — restart to apply." to WarmPalette.SUCCESS_BRIGHT
                 UpdateInstaller.State.FAILED -> "Update failed — check the log." to WarmPalette.DANGER_BRIGHT
-                else -> when {
-                    removeArmed -> "Click again to remove IcoMod." to WarmPalette.DANGER_BRIGHT
-                    mandatory -> "You're too far behind to keep playing." to WarmPalette.MUTED
-                    else -> "A new version is available." to WarmPalette.MUTED
-                }
+                else -> "A new version is available." to WarmPalette.MUTED
             }
             ctx.drawCenteredTextWithShadow(textRenderer, Text.literal(status), cx, py + 86, color)
         }
@@ -199,13 +167,9 @@ class UpdateScreen(
         ctx.drawCenteredTextWithShadow(textRenderer, Text.literal(label), cx, y + barH + 4, WarmPalette.ACCENT_BRIGHT)
     }
 
-    override fun shouldCloseOnEsc(): Boolean = !mandatory
+    override fun shouldPause(): Boolean = false
 
     override fun close() {
-        // Mandatory: trap the player here until they update (or stage a swap).
-        if (mandatory && !UpdateInstaller.isActive()) return
         MinecraftClient.getInstance().setScreen(parent)
     }
-
-    override fun shouldPause(): Boolean = false
 }
