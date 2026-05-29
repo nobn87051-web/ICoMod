@@ -11,10 +11,6 @@ Built on Minecraft 1.21.11 with Fabric Loom and Kotlin.
 - A WIP website for submitting GIFs to include in the mod catalogue
 - Has a Ticket system for requesting changes/reporting issues
 
-
-# TODO:
-1. Replace most class related sounds by custom ones
-   
 ## License
 
 This project is licensed under the GNU GPLv3.
