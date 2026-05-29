@@ -4,8 +4,8 @@
  * Per-message gif size, encoded as a suffix on the filename in chat:
  *   `text.gifXS` `text.gifS` (default) `text.gifM` `text.gifL`
  *
- * Heights are in chat-space pixels (9 = one chat line). Widths are upper bounds â€”
- * actual gif aspect-fits inside (height Ã— maxWidth).
+ * Heights are in chat-space pixels (9 = one chat line). Widths are upper bounds —
+ * actual gif aspect-fits inside (height × maxWidth).
  */
 enum class GifSize(val height: Int, val maxWidth: Int) {
     /** Emoji-sized, ~1 chat line tall. */

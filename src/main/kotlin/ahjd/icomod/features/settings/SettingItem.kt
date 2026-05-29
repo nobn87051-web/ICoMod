@@ -44,6 +44,66 @@ sealed class SettingItem {
         val buttonText: String = "Run",
         val onClick: () -> Unit,
     ) : SettingItem()
+
+    /**
+     * Decorative subsection divider rendered inside a section. Useful when one
+     * section groups several semantically distinct rows (e.g. Custom Spell
+     * Sounds: "Setup" actions vs. "Mage Spells" cards).
+     */
+    data class SectionHeaderItem(
+        override val label: String,
+        override val help: String? = null,
+        /** 0 = use [ahjd.icomod.features.settings.ui.WarmPalette.ACCENT]. */
+        val accent: Int = 0,
+    ) : SettingItem()
+
+    /**
+     * Composite card row for a single spell. Renders as a tall, accent-striped
+     * card with the spell name on the left and three controls on the right:
+     * enable toggle, sound-file dropdown, and a Preview button. Class is shown
+     * as a small pill badge; classifier sound IDs are surfaced in [help].
+     *
+     * Staging works field-by-field: enable and file each stage independently
+     * through [SettingsScreen]'s pending map.
+     */
+    data class SpellCardItem(
+        override val label: String,
+        override val help: String? = null,
+        val classKind: String,
+        /** Class accent color, used for the left stripe + pill. */
+        val accentColor: Int,
+        val getEnabled: () -> Boolean,
+        val setEnabled: (Boolean) -> Unit,
+        val fileOptions: List<String>,
+        val getFile: () -> String,
+        val setFile: (String) -> Unit,
+        val getVolume: () -> Float,
+        val setVolume: (Float) -> Unit,
+        val onPreview: () -> Unit,
+    ) : SettingItem()
+
+    /**
+     * Searchable picker over a dynamic option list (type-to-filter popup).
+     * Rendered as a button showing the current value; clicking opens a picker
+     * screen. Applies live (no staging). Used by the emote-wheel slot binds.
+     */
+    data class PickItem(
+        override val label: String,
+        override val help: String? = null,
+        val get: () -> String,
+        val set: (String) -> Unit,
+        val options: () -> List<String>,
+        val placeholder: String = "(none)",
+    ) : SettingItem()
+
+    /** 0..1 float slider with optional label formatter. */
+    data class SliderItem(
+        override val label: String,
+        override val help: String? = null,
+        val get: () -> Float,
+        val set: (Float) -> Unit,
+        val format: (Float) -> String = { "${(it * 100).toInt()}%" },
+    ) : SettingItem()
 }
 
 /**

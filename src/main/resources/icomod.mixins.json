@@ -7,7 +7,12 @@
   ],
   "client": [
     "ChatScreenMixin",
-    "ChatHudMixin"
+    "ChatHudMixin",
+    "PlaySoundS2CMixin",
+    "PlaySoundFromEntityS2CMixin",
+    "GameMessageS2CMixin",
+    "ResourcePackManagerMixin",
+    "ClientPlayerInteractionManagerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

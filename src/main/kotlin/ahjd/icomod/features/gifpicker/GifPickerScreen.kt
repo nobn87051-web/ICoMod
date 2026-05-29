@@ -28,6 +28,12 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
     private val gap = 4
     private val pad = 8
     private val headerH = 28
+    private val visibleRows = 5
+
+    private fun maxScrollRows(): Int {
+        val totalRows = (entries.size + cols - 1) / cols
+        return maxOf(0, totalRows - visibleRows)
+    }
 
     private var entries: List<GifEntry> = emptyList()
     private var scrollRows = 0
@@ -66,7 +72,6 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
         }
 
         panelW = pad * 2 + cols * thumb + (cols - 1) * gap
-        val visibleRows = 5
         panelH = headerH + pad + visibleRows * thumb + (visibleRows - 1) * gap + pad
         panelX = width - panelW - 8
         panelY = height - panelH - 14
@@ -130,9 +135,9 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
 
         if (entries.isEmpty()) {
             val msg = when {
-                GifCatalog.lastError != null -> "§cServer unreachable"
-                GifCatalog.version == 0     -> "§7Loading catalog..."
-                else                         -> "§7No GIFs in catalog"
+                GifCatalog.lastError != null -> "§cCan't reach server"
+                GifCatalog.version == 0     -> "§7Loading..."
+                else                         -> "§7No GIFs yet"
             }
             context.drawTextWithShadow(
                 textRenderer, Text.literal(msg),
@@ -187,7 +192,7 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
         val sub = btnSubmit
         if (sub != null && mouseX in sub.x..(sub.x + sub.w) && mouseY in sub.y..(sub.y + sub.h)) {
             context.drawTextWithShadow(
-                textRenderer, Text.literal("§7Submit GIFs at icomod.xyz"),
+                textRenderer, Text.literal("§7Submit your own at icomod.xyz"),
                 panelX + pad, panelY + panelH + 4, WarmPalette.MUTED
             )
         }
@@ -226,8 +231,7 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
         if (mouseX in panelX.toDouble()..(panelX + panelW).toDouble()
             && mouseY in panelY.toDouble()..(panelY + panelH).toDouble()
         ) {
-            scrollRows = (scrollRows - vertical.toInt()).coerceAtLeast(0)
-                .coerceAtMost(maxOf(0, (entries.size + cols - 1) / cols - 1))
+            scrollRows = (scrollRows - vertical.toInt()).coerceIn(0, maxScrollRows())
             return true
         }
         return super.mouseScrolled(mouseX, mouseY, horizontal, vertical)
@@ -249,11 +253,15 @@ class GifPickerScreen(private val initialChatText: String) : Screen(Text.literal
             }
 
             val gridY0 = panelY + headerH + pad
+            val gridBottom = panelY + panelH - pad
             for ((i, entry) in entries.withIndex()) {
                 val row = i / cols
                 val col = i % cols
                 val x = panelX + pad + col * (thumb + gap)
                 val y = gridY0 + (row - scrollRows) * (thumb + gap)
+                // Ignore cells scrolled outside the visible grid (matches the
+                // render cull) so clicks below/above the panel can't select them.
+                if (y + thumb < gridY0 || y > gridBottom) continue
                 if (mx in x.toDouble()..(x + thumb).toDouble()
                     && my in y.toDouble()..(y + thumb).toDouble()
                 ) {

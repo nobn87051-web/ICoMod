@@ -29,7 +29,7 @@ object ChatGifRenderer {
      */
     private const val MIN_TOKEN_LEN = 5
 
-    data class Match(val entry: GifEntry, val size: GifSize, val prefix: String, val token: String)
+    data class Match(val entry: GifEntry, val size: GifSize)
 
     /**
      * Reusable per-thread plain-text buffer. The render path calls
@@ -61,7 +61,7 @@ object ChatGifRenderer {
      */
     private val lineCache: WeakHashMap<ChatHudLine.Visible, Match> = WeakHashMap(256)
     private var cachedAtVersion: Int = -1
-    private val NO_MATCH: Match = Match(GifEntry("__sentinel__", "", 0L), GifSize.DEFAULT, "", "")
+    private val NO_MATCH: Match = Match(GifEntry("__sentinel__", "", 0L), GifSize.DEFAULT)
 
     fun findGif(line: ChatHudLine.Visible): Match? {
         val ver = GifCatalog.version
@@ -99,22 +99,17 @@ object ChatGifRenderer {
             val name = m.groups[1]?.value ?: continue
             val entry = GifCatalog.byName(name) ?: continue
             val size = GifSize.parse(m.groups[2]?.value)
-            // Only materialise a String here, once we know we're returning a hit.
-            val asString = text.toString()
-            return Match(entry, size, asString.substring(0, m.range.first), m.value)
+            return Match(entry, size)
         }
         return null
     }
 
     /**
      * Draws the gif at (x, y) in chat-space, fitting within the requested size's box,
-     * preserving aspect ratio. The texture is at source resolution; we matrix-scale at draw
-     * time to keep it sharp. Returns true if drawn, false if asset isn't ready.
+     * preserving aspect ratio (unless stretch is on). The texture is at source resolution;
+     * we matrix-scale at draw time to keep it sharp. Drawing is scissor-clipped to
+     * [clipTop, clipBottom]. Returns true if drawn, false if asset isn't ready.
      */
-    fun drawAt(ctx: DrawContext, entry: GifEntry, size: GifSize, x: Int, y: Int): Boolean {
-        return drawAt(ctx, entry, size, x, y, null, null)
-    }
-
     fun drawAtClipped(
         ctx: DrawContext,
         entry: GifEntry,
@@ -123,18 +118,6 @@ object ChatGifRenderer {
         y: Int,
         clipTop: Int,
         clipBottom: Int
-    ): Boolean {
-        return drawAt(ctx, entry, size, x, y, clipTop, clipBottom)
-    }
-
-    private fun drawAt(
-        ctx: DrawContext,
-        entry: GifEntry,
-        size: GifSize,
-        x: Int,
-        y: Int,
-        clipTop: Int?,
-        clipBottom: Int?
     ): Boolean {
         val file = GifCache.ensureLocalAsync(entry).getNow(null) ?: return false
         val ct = GifThumbnail.get(file, entry.name) ?: return false
@@ -154,25 +137,17 @@ object ChatGifRenderer {
             dispH = maxOf(1, (frame.height * ratio).toInt())
         }
 
-        if (clipTop != null && clipBottom != null) {
-            val clippedTop = maxOf(y, clipTop)
-            val clippedBottom = minOf(y + dispH, clipBottom)
-            if (clippedBottom <= clippedTop) return false
+        val clippedTop = maxOf(y, clipTop)
+        val clippedBottom = minOf(y + dispH, clipBottom)
+        if (clippedBottom <= clippedTop) return false
 
-            ctx.enableScissor(x - 1, clippedTop - 1, x + dispW + 1, clippedBottom + 1)
-            try {
-                ctx.fill(x - 1, y - 1, x + dispW + 1, y + dispH + 1, 0xFF000000.toInt())
-                GifDraw.drawScaled(ctx, frame.id, x, y, dispW, dispH, frame.width, frame.height)
-            } finally {
-                ctx.disableScissor()
-            }
-            return true
+        ctx.enableScissor(x - 1, clippedTop - 1, x + dispW + 1, clippedBottom + 1)
+        try {
+            ctx.fill(x - 1, y - 1, x + dispW + 1, y + dispH + 1, 0xFF000000.toInt())
+            GifDraw.drawScaled(ctx, frame.id, x, y, dispW, dispH, frame.width, frame.height)
+        } finally {
+            ctx.disableScissor()
         }
-
-        // Opaque background so chat text behind doesn't bleed through
-        ctx.fill(x - 1, y - 1, x + dispW + 1, y + dispH + 1, 0xFF000000.toInt())
-
-        GifDraw.drawScaled(ctx, frame.id, x, y, dispW, dispH, frame.width, frame.height)
         return true
     }
 }

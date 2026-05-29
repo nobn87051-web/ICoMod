@@ -11,7 +11,7 @@ import java.time.format.DateTimeFormatter
  * line so nothing is lost on a hard crash. Also mirrors to stdout so it shows in the
  * normal Minecraft console.
  *
- * Usage: AhjLog.info("GifCache", "downloading {}", name) â€” `{}` is replaced positionally.
+ * Usage: AhjLog.info("GifCache", "downloading {}", name) — `{}` is replaced positionally.
  */
 object AhjLog {
     private val fmt: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
@@ -20,8 +20,9 @@ object AhjLog {
         val dir = FabricLoader.getInstance().gameDir.resolve("icomod/logs").toFile()
         dir.mkdirs()
         val file = File(dir, "icomod.log")
-        // Append, autoFlush=true so each println is fsynced to the OS buffer immediately.
-        PrintWriter(file.outputStream().apply { /* no-op */ }.bufferedWriter(), true)
+        // Append (don't truncate across launches), autoFlush=true so each
+        // println is pushed to the OS buffer immediately.
+        PrintWriter(java.io.FileOutputStream(file, true).bufferedWriter(), true)
     }
 
     fun info(tag: String, msg: String, vararg args: Any?) = log("INFO", tag, msg, null, args)

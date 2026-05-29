@@ -155,7 +155,7 @@ object MediaOverlayRenderer {
         ctx.fill(x, y, x + w, y + h, 0xC0181818.toInt())
         drawRoundedBorder(ctx, x, y, w, h, WarmPalette.BORDER)
         val tr = MinecraftClient.getInstance().textRenderer
-        val label = "loading…"
+        val label = "Loading..."
         val tw = tr.getWidth(label)
         ctx.drawTextWithShadow(tr, Text.literal(label),
             x + (w - tw) / 2, y + h / 2 - 4, WarmPalette.MUTED)

@@ -21,7 +21,6 @@ object WarmPalette {
     const val TEXT      = 0xFFE8E8E8.toInt()
     const val MUTED     = 0xFFAAAAAA.toInt()
     const val DIM       = 0xFF777777.toInt()
-    const val FAINT     = 0xFF555555.toInt()
 
     const val ACCENT        = 0xFFFF8C28.toInt()
     const val ACCENT_BRIGHT = 0xFFFFB060.toInt()
@@ -47,10 +46,6 @@ fun drawBorder(ctx: DrawContext, x: Int, y: Int, w: Int, h: Int, color: Int) {
     ctx.fill(x, y + h - 1, x + w, y + h, color)
     ctx.fill(x, y, x + 1, y + h, color)
     ctx.fill(x + w - 1, y, x + w, y + h, color)
-}
-
-fun drawInsetBorder(ctx: DrawContext, x: Int, y: Int, w: Int, h: Int, color: Int) {
-    drawBorder(ctx, x + 1, y + 1, w - 2, h - 2, color)
 }
 
 /**
@@ -213,70 +208,6 @@ private fun drawEdgeSunburstH(
     row(3, -2, 2, color)
     row(4, -1, 1, color)
     row(5, 0, 0, accent)
-}
-
-/** Sunburst midpoint motif for left/right edges (mirror of H). */
-private fun drawEdgeSunburstV(
-    ctx: DrawContext,
-    edgeX: Int, cy: Int, inDir: Int,
-    color: Int, accent: Int,
-) {
-    fun col(d: Int, ty: Int, by: Int, c: Int) {
-        val px = edgeX + d * inDir
-        ctx.fill(px, cy + ty, px + 1, cy + by + 1, c)
-    }
-    col(0, -1, 1, accent)
-    col(0, -4, -4, color)
-    col(0, 4, 4, color)
-    col(1, -2, 2, color)
-    col(2, -3, 3, accent)
-    col(3, -2, 2, color)
-    col(4, -1, 1, color)
-    col(5, 0, 0, accent)
-}
-
-/**
- * Ornamental divider line — horizontal band with a centered fleur motif and
- * flanking spiral scrollwork. Drawn on row [y]; uses 5 rows of vertical space
- * (y-2 .. y+2) for the centerpiece and small bumps for scrollwork.
- */
-fun drawOrnamentalDivider(ctx: DrawContext, x: Int, y: Int, w: Int, color: Int) {
-    if (w < 40) { ctx.fill(x, y, x + w, y + 1, color); return }
-    val accent = lerpColor(color, 0xFFFFFFFF.toInt(), 0.35f)
-    val cx = x + w / 2
-    val x2 = x + w
-
-    // Main line, broken in three places: center motif and two scrollworks
-    val scrollOffset = 22
-    val centerGap = 9
-    ctx.fill(x, y, cx - scrollOffset - 4, y + 1, color)
-    ctx.fill(cx - scrollOffset + 4, y, cx - centerGap, y + 1, color)
-    ctx.fill(cx + centerGap, y, cx + scrollOffset - 4, y + 1, color)
-    ctx.fill(cx + scrollOffset + 4, y, x2, y + 1, color)
-
-    // --- Center fleur (9-wide × 5-tall) ---
-    // Vertical stem above and below
-    ctx.fill(cx, y - 2, cx + 1, y - 1, accent)
-    ctx.fill(cx, y + 1, cx + 1, y + 2, accent)
-    // Diamond body
-    ctx.fill(cx - 1, y - 1, cx + 2, y, color)
-    ctx.fill(cx - 4, y, cx + 5, y + 1, color)
-    ctx.fill(cx - 1, y + 1, cx + 2, y + 2, color)
-    // Inner accent dot
-    ctx.fill(cx, y, cx + 1, y + 1, accent)
-    // Outer flank pips
-    ctx.fill(cx - 7, y, cx - 6, y + 1, accent)
-    ctx.fill(cx + 6, y, cx + 7, y + 1, accent)
-
-    // --- Side scrollworks (3-wide spirals) at ±scrollOffset ---
-    for (s in intArrayOf(-1, +1)) {
-        val sx = cx + s * scrollOffset
-        // Curl: 3 pixels on the line + 1 pixel above (top of spiral) +
-        //       1 below (tail). Mirrored by sign of s.
-        ctx.fill(sx - 2, y, sx + 3, y + 1, color)
-        ctx.fill(sx - 1, y - 1, sx, y, accent)
-        ctx.fill(sx + 1, y + 1, sx + 2, y + 2, accent)
-    }
 }
 
 /**

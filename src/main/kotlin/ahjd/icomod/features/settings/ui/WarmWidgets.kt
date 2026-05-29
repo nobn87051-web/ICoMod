@@ -2,9 +2,84 @@ package ahjd.icomod.features.settings.ui
 
 import net.minecraft.client.MinecraftClient
 import net.minecraft.client.gui.DrawContext
+import net.minecraft.client.gui.Click
+import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder
+import net.minecraft.client.gui.widget.ClickableWidget
 import net.minecraft.client.gui.widget.TextFieldWidget
 import net.minecraft.text.Text
 import kotlin.math.exp
+
+/**
+ * Warm-skinned [ClickableWidget] for use on vanilla [net.minecraft.client.gui.screen.Screen]s
+ * (where the [WarmControl] family — driven by SettingsScreen's own mouse
+ * routing — can't be used). Subclassing ClickableWidget keeps vanilla
+ * focus/child plumbing for free; we repaint and route the click ourselves.
+ *
+ * Three semantic styles so positive / destructive / dismissive actions read at
+ * a glance. Inactive buttons drop to a flat dimmed look with no hover.
+ */
+class WarmButton(
+    x: Int, y: Int, w: Int, h: Int,
+    message: Text,
+    var style: Style,
+    private var onPress: () -> Unit,
+) : ClickableWidget(x, y, w, h, message) {
+
+    enum class Style { PRIMARY, DANGER, GHOST }
+
+    /** Repoint the click action (used when a button's role changes by state). */
+    fun setAction(action: () -> Unit) { onPress = action }
+
+    private var hoverT = 0f
+    private var lastNs = 0L
+
+    override fun mouseClicked(click: Click, doubled: Boolean): Boolean {
+        if (click.button() == 0 && active && visible && isMouseOver(click.x(), click.y())) {
+            onPress.invoke()
+            return true
+        }
+        return false
+    }
+
+    override fun appendClickableNarrations(builder: NarrationMessageBuilder) =
+        appendDefaultNarrations(builder)
+
+    override fun renderWidget(ctx: DrawContext, mouseX: Int, mouseY: Int, delta: Float) {
+        val now = System.nanoTime()
+        val dt = if (lastNs == 0L) 0f else ((now - lastNs) / 1_000_000_000.0).toFloat()
+        lastNs = now
+        val target = if (active && isHovered) 1f else 0f
+        hoverT += (target - hoverT) * (1f - exp(-dt * 14f))
+        val hv = hoverT
+
+        val (bg, border, text) = when {
+            !active -> Triple(WarmPalette.SURFACE, WarmPalette.BORDER, WarmPalette.DIM)
+            style == Style.PRIMARY -> Triple(
+                lerpColor(WarmPalette.ACCENT_FAINT, WarmPalette.ACCENT_HOVER, hv),
+                lerpColor(WarmPalette.ACCENT, WarmPalette.ACCENT_BRIGHT, hv),
+                lerpColor(WarmPalette.ACCENT_BRIGHT, 0xFFFFFFFF.toInt(), hv),
+            )
+            style == Style.DANGER -> Triple(
+                lerpColor(WarmPalette.DANGER_FAINT, (WarmPalette.DANGER and 0x00FFFFFF) or (0x66 shl 24), hv),
+                lerpColor(WarmPalette.DANGER, WarmPalette.DANGER_BRIGHT, hv),
+                lerpColor(WarmPalette.DANGER_BRIGHT, 0xFFFFFFFF.toInt(), hv),
+            )
+            else -> Triple(
+                lerpColor(WarmPalette.SURFACE, WarmPalette.RAISED, hv),
+                lerpColor(WarmPalette.BORDER, WarmPalette.ACCENT_EDGE, hv),
+                lerpColor(WarmPalette.MUTED, WarmPalette.ACCENT_BRIGHT, hv),
+            )
+        }
+
+        val bx = this.x
+        val by = this.y
+        fillRounded(ctx, bx, by, width, height, bg)
+        drawRoundedBorder(ctx, bx, by, width, height, border)
+        val tr = MinecraftClient.getInstance().textRenderer
+        val label = message.string
+        ctx.drawTextWithShadow(tr, label, bx + (width - tr.getWidth(label)) / 2, by + (height - 8) / 2, text)
+    }
+}
 
 /**
  * Standalone controls owned by [ahjd.icomod.features.settings.SettingsScreen].
@@ -180,6 +255,66 @@ class GhostControl(
         fillRounded(ctx, x, y, w, h, bg)
         drawRoundedBorder(ctx, x, y, w, h, border)
         centerText(ctx, label, color)
+    }
+}
+
+/**
+ * Horizontal slider for 0..1 float values. Click anywhere on the track to
+ * snap; drag updates while the mouse is held. Knob is a 6px-wide rounded
+ * pill; track is a filled rounded rect with an accent-colored fill segment
+ * for the current value.
+ *
+ * Dragging is driven externally by
+ * [ahjd.icomod.features.settings.SettingsScreen] which tracks the active
+ * slider between `mouseClicked` and `mouseReleased` and forwards mouse-move
+ * events into [updateFromMouse].
+ */
+class SliderControl(
+    override var x: Int, override var y: Int, override val w: Int, override val h: Int,
+    val getValue: () -> Float,
+    val onChange: (Float) -> Unit,
+    /** Optional formatter for the inline label. Default: "NN%". */
+    val format: (Float) -> String = { "${(it * 100).toInt()}%" },
+) : WarmControl() {
+
+    override fun onLeft() {}  // SettingsScreen calls updateFromMouse + starts drag
+
+    fun updateFromMouse(mx: Double) {
+        if (w <= 0) return
+        val rel = ((mx - x) / w).coerceIn(0.0, 1.0)
+        val newVal = rel.toFloat().coerceIn(0f, 1f)
+        if (kotlin.math.abs(newVal - getValue()) > 0.001f) onChange(newVal)
+    }
+
+    override fun render(ctx: DrawContext, mx: Int, my: Int) {
+        val hover = tickHover(mx, my)
+        val value = getValue().coerceIn(0f, 1f)
+
+        // Track
+        val trackY = y + (h - 6) / 2
+        fillRounded(ctx, x, trackY, w, 6, WarmPalette.INPUT)
+        drawRoundedBorder(ctx, x, trackY, w, 6,
+            lerpColor(WarmPalette.BORDER_SOFT, WarmPalette.ACCENT, hover))
+
+        // Filled portion
+        val fillW = (w * value).toInt().coerceAtLeast(0)
+        if (fillW > 0) {
+            val fillColor = lerpColor(WarmPalette.ACCENT_DEEP, WarmPalette.ACCENT, hover)
+            fillRounded(ctx, x, trackY, fillW, 6, fillColor)
+        }
+
+        // Knob
+        val knobW = 6
+        val knobX = (x + (w - knobW) * value).toInt().coerceIn(x, x + w - knobW)
+        val knobColor = lerpColor(WarmPalette.ACCENT, WarmPalette.ACCENT_BRIGHT, hover)
+        fillRounded(ctx, knobX, y, knobW, h, knobColor)
+
+        // Inline value label, right of slider
+        val tr = textRenderer()
+        val label = format(value)
+        val labelColor = lerpColor(WarmPalette.MUTED, WarmPalette.ACCENT_BRIGHT, hover)
+        ctx.drawTextWithShadow(tr, Text.literal(label),
+            x + w + 6, y + (h - 8) / 2, labelColor)
     }
 }
 

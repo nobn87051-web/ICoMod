@@ -66,7 +66,7 @@ object ChatModeFeature {
         if (ChatModeManager.currentMode == ChatMode.CHINESE) {
             return ChineseInjector.inject(message)
         }
-        // Pipeline: WordMap (vocabulary) â†’ GrammarFixer (caps/contractions/period)
+        // Pipeline: WordMap (vocabulary) → GrammarFixer (caps/contractions/period)
         return GrammarFixer.fix(ChatModeManager.applyWordMap(message))
     }
 

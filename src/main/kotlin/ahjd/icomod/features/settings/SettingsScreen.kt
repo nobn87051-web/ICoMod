@@ -4,12 +4,15 @@ import ahjd.icomod.config.ConfigManager
 import ahjd.icomod.features.settings.ui.ActionControl
 import ahjd.icomod.features.settings.ui.CycleControl
 import ahjd.icomod.features.settings.ui.GhostControl
+import ahjd.icomod.features.settings.ui.SliderControl
+import ahjd.icomod.features.settings.ui.SpellCardControl
 import ahjd.icomod.features.settings.ui.TextFieldControl
 import ahjd.icomod.features.settings.ui.ToggleControl
 import ahjd.icomod.features.settings.ui.WarmControl
 import ahjd.icomod.features.settings.ui.WarmPalette
 import ahjd.icomod.features.settings.ui.drawOrnamentalBorder
 import ahjd.icomod.features.settings.ui.drawRoundedBorder
+import ahjd.icomod.features.settings.ui.drawSectionHeaderStrip
 import ahjd.icomod.features.settings.ui.fillRounded
 import ahjd.icomod.features.settings.ui.lerpColor
 import kotlin.math.exp
@@ -51,12 +54,15 @@ class SettingsScreen(private val parent: Screen?) :
         const val TAB_GAP = 2
         const val PANEL_MARGIN = 16
         const val ROW_H = 38
+        const val ROW_H_CARD = 76
+        const val ROW_H_SUBHEADER = 22
         const val ROW_PAD_X = 14
         const val SECTION_HEAD_H = 28
         const val CTRL_TOGGLE_W = 70
         const val CTRL_CYCLE_W = 140
         const val CTRL_ACTION_W = 140
         const val CTRL_TEXT_W = 240
+        const val CTRL_SLIDER_W = 180
         const val CTRL_H = 22
         const val SCROLLBAR_W = 4
         const val HELP_RIGHT_MARGIN = 12
@@ -65,7 +71,19 @@ class SettingsScreen(private val parent: Screen?) :
         const val FOOTER_BTN_H = 22
     }
 
-    private data class RowSlot(val item: SettingItem, val ctrl: WarmControl, val logicalY: Int)
+    private data class RowSlot(
+        val item: SettingItem,
+        /** null for items that paint themselves (SectionHeaderItem). */
+        val ctrl: WarmControl?,
+        val logicalY: Int,
+        val rowH: Int,
+    )
+
+    private fun rowHeightOf(item: SettingItem): Int = when (item) {
+        is SettingItem.SectionHeaderItem -> ROW_H_SUBHEADER
+        is SettingItem.SpellCardItem -> ROW_H_CARD
+        else -> ROW_H
+    }
 
     private var activeTab = 0
     private var rows: List<RowSlot> = emptyList()
@@ -78,8 +96,25 @@ class SettingsScreen(private val parent: Screen?) :
     /** Set by [requestRebuild] from action handlers; consumed in render. */
     @Volatile private var rebuildPending = false
 
-    /** Pending edits keyed by item. Cleared on Apply or Discard. */
-    private val pending = mutableMapOf<SettingItem, Any>()
+    /** Slider currently being dragged (set on mouseClicked, cleared on release). */
+    private var draggingSlider: SliderControl? = null
+
+    /**
+     * Set of [SettingItem.SectionHeaderItem.label]s the user has folded
+     * shut. While a header sits in here, all rows below it (up to the
+     * next header) are excluded from [rows] entirely -- no scroll, no
+     * click, no render. Persists across [buildPane] but not across
+     * screen close (intentional: each open starts everything expanded
+     * except whatever the user chose this session).
+     */
+    private val collapsedHeaders = mutableSetOf<String>()
+
+    /**
+     * Pending edits keyed by item — or by `Pair(item, fieldKey)` for composite
+     * items like [SettingItem.SpellCardItem] that stage multiple fields.
+     * Cleared on Apply or Discard.
+     */
+    private val pending = mutableMapOf<Any, Any>()
 
     /** Exit-confirm dialog visibility + per-button hover. */
     private var showExitDialog = false
@@ -137,14 +172,24 @@ class SettingsScreen(private val parent: Screen?) :
         val (paneX, paneY, paneW, _) = paneBounds()
         val list = mutableListOf<RowSlot>()
         var rowY = paneY + SECTION_HEAD_H
+        // Collapsible filter: once a SectionHeaderItem flagged collapsed
+        // is seen, skip subsequent items until the next header. Headers
+        // themselves are always emitted so the user can re-open them.
+        var skipUntilNextHeader = false
         for (item in sectionItems) {
-            val ctrl = buildControl(item, paneX, paneW, rowY)
-            list += RowSlot(item, ctrl, rowY)
+            if (item is SettingItem.SectionHeaderItem) {
+                skipUntilNextHeader = collapsedHeaders.contains(item.label)
+            } else if (skipUntilNextHeader) {
+                continue
+            }
+            val rh = rowHeightOf(item)
+            val ctrl = buildControl(item, paneX, paneW, rowY, rh)
+            list += RowSlot(item, ctrl, rowY, rh)
             if (ctrl is TextFieldControl) addDrawableChild(ctrl.widget)
-            rowY += ROW_H
+            rowY += rh
         }
         rows = list
-        contentHeight = SECTION_HEAD_H + sectionItems.size * ROW_H
+        contentHeight = SECTION_HEAD_H + (rowY - (paneY + SECTION_HEAD_H))
         scrollY = 0
         applyScroll()
     }
@@ -157,8 +202,13 @@ class SettingsScreen(private val parent: Screen?) :
     private fun applyScroll() {
         for (row in rows) {
             val rowYActual = row.logicalY - scrollY
-            row.ctrl.y = rowYActual + (ROW_H - CTRL_H) / 2
-            if (row.ctrl is TextFieldControl) row.ctrl.syncWidgetPosition()
+            val ctrl = row.ctrl ?: continue
+            when (ctrl) {
+                is SpellCardControl ->
+                    ctrl.relayout(ctrl.x, rowYActual + (row.rowH - SpellCardControl.CARD_H) / 2)
+                else -> ctrl.y = rowYActual + (row.rowH - CTRL_H) / 2
+            }
+            if (ctrl is TextFieldControl) ctrl.syncWidgetPosition()
         }
     }
 
@@ -185,16 +235,77 @@ class SettingsScreen(private val parent: Screen?) :
         if (v == item.get()) pending.remove(item) else pending[item] = v
     }
 
+    private fun stagedGet(item: SettingItem.SliderItem): Float =
+        pending[item] as? Float ?: item.get()
+
+    private fun stagedSet(item: SettingItem.SliderItem, v: Float) {
+        // Sliders apply live so volume changes audition immediately --
+        // the staging model used for other inputs is unintuitive for
+        // continuous controls. Persist on the spot so the value survives
+        // a crash or screen Discard.
+        item.set(v)
+        pending.remove(item)
+        ahjd.icomod.config.ConfigManager.save()
+        ahjd.icomod.util.AhjLog.info("Settings",
+            "slider '{}' set={} readback={}", item.label, v, item.get())
+    }
+
+    // SpellCardItem has two staged fields ("enabled" and "file") that need
+    // independent change tracking — pending is keyed by (item, field).
+    private fun stagedCardEnabled(item: SettingItem.SpellCardItem): Boolean =
+        pending[item to "enabled"] as? Boolean ?: item.getEnabled()
+
+    private fun stagedCardEnabledSet(item: SettingItem.SpellCardItem, v: Boolean) {
+        val key = item to "enabled"
+        if (v == item.getEnabled()) pending.remove(key) else pending[key] = v
+    }
+
+    private fun stagedCardFile(item: SettingItem.SpellCardItem): String =
+        pending[item to "file"] as? String ?: item.getFile()
+
+    private fun stagedCardFileSet(item: SettingItem.SpellCardItem, v: String) {
+        val key = item to "file"
+        if (v == item.getFile()) pending.remove(key) else pending[key] = v
+    }
+
+    private fun stagedCardVolume(item: SettingItem.SpellCardItem): Float =
+        pending[item to "volume"] as? Float ?: item.getVolume()
+
+    private fun stagedCardVolumeSet(item: SettingItem.SpellCardItem, v: Float) {
+        // Live-apply (same reasoning as SliderItem above).
+        item.setVolume(v)
+        pending.remove(item to "volume")
+        ahjd.icomod.config.ConfigManager.save()
+    }
+
+    private fun rowDirty(item: SettingItem): Boolean = when (item) {
+        is SettingItem.SpellCardItem -> pending.containsKey(item to "enabled") ||
+                                        pending.containsKey(item to "file") ||
+                                        pending.containsKey(item to "volume")
+        else -> pending.containsKey(item)
+    }
+
     private fun isDirty(): Boolean = pending.isNotEmpty()
 
     /** Write pending values to real config + persist. */
     private fun applyPending() {
-        for ((item, value) in pending) {
-            when (item) {
-                is SettingItem.BoolItem   -> item.set(value as Boolean)
-                is SettingItem.EnumItem   -> item.set(value as String)
-                is SettingItem.StringItem -> item.set(value as String)
-                is SettingItem.ActionItem -> {}  // never staged
+        for ((key, value) in pending) {
+            when (key) {
+                is SettingItem.BoolItem   -> key.set(value as Boolean)
+                is SettingItem.EnumItem   -> key.set(value as String)
+                is SettingItem.StringItem -> key.set(value as String)
+                is Pair<*, *> -> {
+                    val item = key.first
+                    val field = key.second as? String
+                    if (item is SettingItem.SpellCardItem) {
+                        when (field) {
+                            "enabled" -> item.setEnabled(value as Boolean)
+                            "file"    -> item.setFile(value as String)
+                            "volume"  -> item.setVolume(value as Float)
+                        }
+                    }
+                }
+                else -> {}
             }
         }
         pending.clear()
@@ -214,9 +325,11 @@ class SettingsScreen(private val parent: Screen?) :
 
     // --- Control construction ----------------------------------------------
 
-    private fun buildControl(item: SettingItem, paneX: Int, paneW: Int, rowY: Int): WarmControl {
+    private fun buildControl(
+        item: SettingItem, paneX: Int, paneW: Int, rowY: Int, rowH: Int,
+    ): WarmControl? {
         val rowRight = paneX + paneW - ROW_PAD_X
-        val ctrlY = rowY + (ROW_H - CTRL_H) / 2
+        val ctrlY = rowY + (rowH - CTRL_H) / 2
         return when (item) {
             is SettingItem.BoolItem -> ToggleControl(
                 rowRight - CTRL_TOGGLE_W, ctrlY, CTRL_TOGGLE_W, CTRL_H,
@@ -247,6 +360,64 @@ class SettingsScreen(private val parent: Screen?) :
                 label = item.buttonText,
                 onClick = item.onClick,
             )
+            is SettingItem.PickItem -> ActionControl(
+                rowRight - CTRL_ACTION_W, ctrlY, CTRL_ACTION_W, CTRL_H,
+                label = item.get().ifBlank { item.placeholder },
+                onClick = {
+                    MinecraftClient.getInstance().setScreen(
+                        ahjd.icomod.features.emote.EmotePickerScreen(
+                            this, item.label, item.options(), item.get()
+                        ) { picked -> item.set(picked); requestRebuild() }
+                    )
+                },
+            )
+            is SettingItem.SliderItem -> SliderControl(
+                // Leave 40px past the track for the inline "NN%" label.
+                rowRight - CTRL_SLIDER_W - 40, ctrlY + 6, CTRL_SLIDER_W, 10,
+                getValue = { stagedGet(item) },
+                onChange = { stagedSet(item, it) },
+                format = item.format,
+            )
+            is SettingItem.SpellCardItem -> {
+                val safeFile = item.getFile().takeIf { it in item.fileOptions }
+                    ?: item.fileOptions.firstOrNull() ?: ""
+                if (item.getFile() != safeFile && safeFile.isNotEmpty()) {
+                    item.setFile(safeFile); ConfigManager.save()
+                }
+                val cardX = paneX + ROW_PAD_X
+                val cardW = paneW - ROW_PAD_X * 2
+                val toggle = ToggleControl(
+                    0, 0, SpellCardControl.TOGGLE_W, SpellCardControl.CTRL_H,
+                    getOn = { stagedCardEnabled(item) },
+                    onChange = { stagedCardEnabledSet(item, it) },
+                )
+                val cycle = CycleControl(
+                    0, 0, SpellCardControl.CYCLE_W, SpellCardControl.CTRL_H,
+                    opts = item.fileOptions,
+                    getCurrent = { stagedCardFile(item) },
+                    onChange = { stagedCardFileSet(item, it) },
+                )
+                val preview = ActionControl(
+                    0, 0, SpellCardControl.PREVIEW_W, SpellCardControl.CTRL_H,
+                    label = "Preview",
+                    onClick = item.onPreview,
+                )
+                val slider = SliderControl(
+                    0, 0, SpellCardControl.SLIDER_W, SpellCardControl.SLIDER_H,
+                    getValue = { stagedCardVolume(item) },
+                    onChange = { stagedCardVolumeSet(item, it) },
+                )
+                SpellCardControl(
+                    x = cardX, y = rowY + (rowH - SpellCardControl.CARD_H) / 2,
+                    w = cardW, h = SpellCardControl.CARD_H,
+                    title = item.label,
+                    classKind = item.classKind,
+                    accent = item.accentColor,
+                    classifierHint = item.help,
+                    toggle = toggle, cycle = cycle, preview = preview, slider = slider,
+                )
+            }
+            is SettingItem.SectionHeaderItem -> null  // painted directly in renderPane
         }
     }
 
@@ -278,7 +449,7 @@ class SettingsScreen(private val parent: Screen?) :
         val brandW = textRenderer.getWidth("IcoMod ")
         ctx.drawTextWithShadow(textRenderer, Text.literal("Settings"),
             12 + brandW, 16, WarmPalette.TEXT)
-        ctx.drawTextWithShadow(textRenderer, Text.literal("press [${SettingsKeybind.boundKeyName()}] to toggle"),
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Press [${SettingsKeybind.boundKeyName()}] to open"),
             12, 28, WarmPalette.DIM)
 
         // Footer band
@@ -374,21 +545,44 @@ class SettingsScreen(private val parent: Screen?) :
         try {
             for ((i, row) in rows.withIndex()) {
                 val rowY = row.logicalY - scrollY
-                if (rowY + ROW_H < rowsTop || rowY > paneBottom) continue
-                if (i > 0) {
-                    ctx.fill(paneX + ROW_PAD_X, rowY, paneX + paneW - ROW_PAD_X,
-                        rowY + 1, WarmPalette.BORDER_HAIRLINE)
+                if (rowY + row.rowH < rowsTop || rowY > paneBottom) continue
+
+                when (val item = row.item) {
+                    is SettingItem.SectionHeaderItem -> {
+                        // No hairline above a subheader (it has its own visual weight).
+                        val accent = if (item.accent != 0) item.accent else WarmPalette.ACCENT
+                        drawSectionHeaderStrip(ctx,
+                            paneX + ROW_PAD_X, rowY,
+                            paneW - ROW_PAD_X * 2, row.rowH,
+                            item.label, accent,
+                            collapsed = collapsedHeaders.contains(item.label))
+                    }
+                    is SettingItem.SpellCardItem -> {
+                        // Card paints its own surface — no hairline divider.
+                        row.ctrl?.render(ctx, mx, my)
+                    }
+                    else -> {
+                        val prev = if (i > 0) rows[i - 1].item else null
+                        val drawHairline = prev != null &&
+                            prev !is SettingItem.SectionHeaderItem &&
+                            prev !is SettingItem.SpellCardItem
+                        if (drawHairline) {
+                            ctx.fill(paneX + ROW_PAD_X, rowY, paneX + paneW - ROW_PAD_X,
+                                rowY + 1, WarmPalette.BORDER_HAIRLINE)
+                        }
+                        val ctrl = row.ctrl ?: continue
+                        val textRight = ctrl.x - HELP_RIGHT_MARGIN
+                        val textLeft = paneX + ROW_PAD_X
+                        val textMaxW = (textRight - textLeft).coerceAtLeast(40)
+                        val labelColor = if (rowDirty(item)) WarmPalette.ACCENT_BRIGHT
+                                         else WarmPalette.TEXT
+                        drawClipped(ctx, item.label, textLeft, rowY + 8, textMaxW, labelColor)
+                        item.help?.takeIf { it.isNotBlank() }?.let { help ->
+                            drawClipped(ctx, help, textLeft, rowY + 22, textMaxW, WarmPalette.DIM)
+                        }
+                        ctrl.render(ctx, mx, my)
+                    }
                 }
-                val textRight = row.ctrl.x - HELP_RIGHT_MARGIN
-                val textLeft = paneX + ROW_PAD_X
-                val textMaxW = (textRight - textLeft).coerceAtLeast(40)
-                val labelColor = if (row.item in pending) WarmPalette.ACCENT_BRIGHT
-                                 else WarmPalette.TEXT
-                drawClipped(ctx, row.item.label, textLeft, rowY + 8, textMaxW, labelColor)
-                row.item.help?.takeIf { it.isNotBlank() }?.let { help ->
-                    drawClipped(ctx, help, textLeft, rowY + 22, textMaxW, WarmPalette.DIM)
-                }
-                row.ctrl.render(ctx, mx, my)
             }
             super.render(ctx, mx, my, delta)
         } finally {
@@ -557,17 +751,67 @@ class SettingsScreen(private val parent: Screen?) :
         // Pane row controls
         val (paneX, paneY, paneW, paneH) = paneBounds()
         if (mx >= paneX && mx <= paneX + paneW && my >= paneY + SECTION_HEAD_H && my <= paneY + paneH) {
+            // Section-header clicks toggle collapse for everything below
+            // them. Headers have no associated WarmControl, so handle them
+            // here before the ctrl-routing loop below.
+            if (button == 0) {
+                for (row in rows) {
+                    val item = row.item
+                    if (item !is SettingItem.SectionHeaderItem) continue
+                    val rowYActual = row.logicalY - scrollY
+                    if (my < rowYActual || my > rowYActual + row.rowH) continue
+                    if (mx < paneX + ROW_PAD_X || mx > paneX + paneW - ROW_PAD_X) continue
+                    if (collapsedHeaders.contains(item.label)) collapsedHeaders.remove(item.label)
+                    else collapsedHeaders.add(item.label)
+                    buildPane()
+                    return true
+                }
+            }
             for (row in rows) {
-                val ctrl = row.ctrl
+                val ctrl = row.ctrl ?: continue
                 if (ctrl is TextFieldControl) continue
                 if (!ctrl.hit(mx, my)) continue
-                when (button) {
-                    0 -> { ctrl.onLeft(); return true }
-                    1 -> { ctrl.onRight(); return true }
+                when (ctrl) {
+                    is SpellCardControl -> {
+                        // Card may contain a slider — start drag if hit.
+                        if (button == 0 && ctrl.slider.hit(mx, my)) {
+                            ctrl.slider.updateFromMouse(mx)
+                            draggingSlider = ctrl.slider
+                            return true
+                        }
+                        if (ctrl.dispatchClick(mx, my, button)) return true
+                    }
+                    is SliderControl -> {
+                        if (button == 0) {
+                            ctrl.updateFromMouse(mx)
+                            draggingSlider = ctrl
+                            return true
+                        }
+                    }
+                    else -> when (button) {
+                        0 -> { ctrl.onLeft(); return true }
+                        1 -> { ctrl.onRight(); return true }
+                    }
                 }
             }
         }
         return super.mouseClicked(click, doubled)
+    }
+
+    override fun mouseDragged(
+        click: Click, offsetX: Double, offsetY: Double,
+    ): Boolean {
+        draggingSlider?.let { sl ->
+            if (click.button() == 0) { sl.updateFromMouse(click.x()); return true }
+        }
+        return super.mouseDragged(click, offsetX, offsetY)
+    }
+
+    override fun mouseReleased(click: Click): Boolean {
+        if (click.button() == 0 && draggingSlider != null) {
+            draggingSlider = null; return true
+        }
+        return super.mouseReleased(click)
     }
 
     override fun keyPressed(input: KeyInput): Boolean {
